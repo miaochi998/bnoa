@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+} from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { VersionService } from './services/version.service';
 import { PortainerService } from './services/portainer.service';
@@ -165,6 +170,9 @@ export class UpgradeService implements OnApplicationBootstrap {
           ]),
         },
       });
+      // 终态：释放升级锁。否则锁会残留到 TTL(1h) 过期，
+      // 期间用户再点升级会被拒（历史上正是这样卡住过一次）。
+      await this.releaseLock();
       this.logger.log(`升级已核对通过：容器实际镜像 ${actual}`);
       return {
         verdict: 'success',
@@ -222,6 +230,8 @@ export class UpgradeService implements OnApplicationBootstrap {
         ]),
       },
     });
+    // 终态：失败同样释放锁 —— 失败不该让用户等到 TTL 过期才能重试
+    await this.releaseLock();
     this.logger.error(`升级核对失败：${reason}`);
     return { verdict: 'failed', actualVersion: actual, detail: reason };
   }
@@ -277,7 +287,36 @@ export class UpgradeService implements OnApplicationBootstrap {
     return !!lock;
   }
 
+  /**
+   * 获取升级锁；若发现是**残留锁**则自动清除后重试。
+   *
+   * 锁用于防止并发升级（合理设计），但历史上存在残留问题：升级成功后锁不会自动释放，
+   * 只能依赖"后端重启时 cleanupStaleUpgrades 清锁"这一偶然兜底 —— 而**版本未变化时
+   * 不会触发容器重建**（如"同版本升级"），后端不重启，锁就会一直挂到 TTL(1h) 过期，
+   * 期间用户点升级会被直接拒绝（且旧代码会把它抛成 500，前端误以为"服务重启中"）。
+   */
   private async acquireLock(): Promise<boolean> {
+    const acquired = await this.redisService.setNX(
+      this.UPGRADE_LOCK_KEY,
+      Date.now().toString(),
+      this.UPGRADE_LOCK_TTL,
+    );
+    if (acquired) return true;
+
+    // 锁已存在 → 判定它是否对应一次**真实进行中**的升级
+    const activeUpgrade = await this.prisma.upgradeLog.findFirst({
+      where: { status: { in: ['running', 'deploying'] } },
+      orderBy: { startedAt: 'desc' },
+    });
+
+    if (activeUpgrade) {
+      return false; // 确有升级在进行 → 正常拒绝并发
+    }
+
+    this.logger.warn(
+      '检测到残留的升级锁（不存在进行中的升级记录），自动清除后重试',
+    );
+    await this.releaseLock();
     return await this.redisService.setNX(
       this.UPGRADE_LOCK_KEY,
       Date.now().toString(),
@@ -296,7 +335,9 @@ export class UpgradeService implements OnApplicationBootstrap {
   ): Promise<any> {
     const lockAcquired = await this.acquireLock();
     if (!lockAcquired) {
-      throw new Error('升级正在进行中，请稍后再试');
+      // 用 ConflictException(409) 而非普通 Error：后者会被转成 500，
+      // 前端无法判断真实原因，会误当成"服务重启中"而空等到超时。
+      throw new ConflictException('已有升级正在进行中，请稍后再试');
     }
 
     const currentVersion = await this.versionService.getCurrentVersion();

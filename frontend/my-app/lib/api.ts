@@ -125,7 +125,13 @@ class ApiClient {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.message || '请求失败');
+      // 保留状态码与响应体：调用方需要区分「业务错误」（如 409 升级冲突、400 预检未通过）
+      // 与「网络中断」（升级重启后端时的必然现象）。此前只抛 message，
+      // 导致升级请求被拒时前端误判为"服务重启中"而空等到超时。
+      const error: any = new Error(data.message || '请求失败');
+      error.status = response.status;
+      error.data = data;
+      throw error;
     }
 
     return data;
@@ -583,7 +589,13 @@ class ApiClient {
     const data = await response.json();
     
     if (!response.ok) {
-      throw new Error(data.message || '请求失败');
+      // 保留状态码与响应体：调用方需要区分「业务错误」（如 409 升级冲突、400 预检未通过）
+      // 与「网络中断」（升级重启后端时的必然现象）。此前只抛 message，
+      // 导致升级请求被拒时前端误判为"服务重启中"而空等到超时。
+      const error: any = new Error(data.message || '请求失败');
+      error.status = response.status;
+      error.data = data;
+      throw error;
     }
     
     // data 就是 { success, message, data }，其中 data 是数组
@@ -632,7 +644,13 @@ class ApiClient {
     const data = await response.json();
     
     if (!response.ok) {
-      throw new Error(data.message || '请求失败');
+      // 保留状态码与响应体：调用方需要区分「业务错误」（如 409 升级冲突、400 预检未通过）
+      // 与「网络中断」（升级重启后端时的必然现象）。此前只抛 message，
+      // 导致升级请求被拒时前端误判为"服务重启中"而空等到超时。
+      const error: any = new Error(data.message || '请求失败');
+      error.status = response.status;
+      error.data = data;
+      throw error;
     }
     
     // data 就是 { success, message, data }，其中 data 是数组

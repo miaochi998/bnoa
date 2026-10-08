@@ -385,20 +385,59 @@ function UpgradeManagementTab() {
         );
       }
 
-      // 超时判断
+      // 超时判断：**先做最后一次核对再下结论**。
+      // 历史教训：升级其实已成功（容器镜像已是目标版本），但前端因查不到记录而
+      // 在超时后武断报"升级异常"，把成功误报成失败。
       if (elapsedSeconds >= MAX_WAIT_SECONDS) {
         cleanup();
+        try {
+          const final = await upgradeAPI.getUpgradeProgress(upgradeId);
+          if (final?.status === "success") {
+            setUpgradeProgress((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    phase: "success",
+                    actualVersion: final.actualVersion ?? null,
+                    containers: final.containers ?? [],
+                    allHealthy: final.allHealthy ?? false,
+                    message: `已核对容器实际镜像，系统成功升级到 v${targetVersion}`,
+                  }
+                : prev
+            );
+            return;
+          }
+          if (final?.status === "failed") {
+            setUpgradeProgress((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    phase: "failed",
+                    actualVersion: final.actualVersion ?? null,
+                    errorMessage:
+                      final.errorMessage || final.message || "升级失败",
+                  }
+                : prev
+            );
+            return;
+          }
+        } catch {
+          /* 查询失败则按"仍在进行"处理 */
+        }
+
+        // 既非成功也非失败 → **不要武断报失败**，明确告知可能仍在进行
         setUpgradeProgress((prev) =>
           prev
             ? {
                 ...prev,
                 phase: "failed",
                 errorMessage:
-                  `等待超时（${Math.round(MAX_WAIT_SECONDS / 60)} 分钟）：后端未在时限内完成核对。\n` +
-                  `可能原因：\n` +
-                  `· 镜像拉取慢或失败（请查看服务器上 Portainer 的容器日志）\n` +
-                  `· 栈配置异常（如镜像 tag 被写死、未使用 \${APP_VERSION} 变量）\n` +
-                  `建议：刷新页面查看升级日志，或登录 Portainer 检查容器状态。`,
+                  `等待超时（${Math.round(MAX_WAIT_SECONDS / 60)} 分钟）：暂未确认升级结果。\n` +
+                  `⚠️ 这不代表升级失败 —— 可能仍在拉取镜像或重建容器（镜像加速器较慢时尤其如此）。\n` +
+                  `建议：\n` +
+                  `· 刷新本页面查看最新状态（升级管理页会显示当前版本）\n` +
+                  `· 或登录 Portainer 核对容器实际镜像版本\n` +
+                  `· 确认无进行中升级后，可再次点击升级重试`,
               }
             : prev
         );
@@ -456,8 +495,31 @@ function UpgradeManagementTab() {
             }
           : prev
       );
-    } catch {
-      // net::ERR_FAILED 等网络错误 = 后端已经在重启了，这是正常现象
+    } catch (error: any) {
+      // 区分两类失败：
+      // ① 后端**明确拒绝**（如 409 已有升级在进行、预检未通过）——这不是"正在重启"，
+      //    必须直接告知用户，且**不要启动轮询**，否则会空等到超时并误报"升级异常"。
+      // ② 网络中断（fetch failed / net::ERR_FAILED）——升级已触发、后端正在重启，属正常现象。
+      const status = error?.status;
+      const msg = String(error?.message || '');
+      const isRejected =
+        status === 409 ||
+        status === 400 ||
+        /正在进行|升级正在|校验|不存在|未启用|配置不完整/.test(msg);
+
+      if (isRejected) {
+        setUpgradeProgress((prev) =>
+          prev
+            ? {
+                ...prev,
+                phase: "failed",
+                errorMessage: msg || "升级请求被后端拒绝，请稍后重试",
+              }
+            : prev
+        );
+        return; // 明确被拒 → 不进入轮询等待
+      }
+
       setUpgradeProgress((prev) =>
         prev
           ? {
