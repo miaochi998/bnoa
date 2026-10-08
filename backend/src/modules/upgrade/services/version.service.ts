@@ -123,6 +123,41 @@ export class VersionService {
     }
   }
 
+  /**
+   * 检查目标版本的镜像是否存在于 Docker Hub
+   *
+   * 用途：升级前预检——若镜像不存在，升级必然白等数分钟后失败。
+   * 说明：仅适用于 Docker Hub；若查询本身失败（网络/私有仓库），返回 exists=null，
+   * 调用方应**不阻断**升级（避免因网络抖动误拦）。
+   */
+  async checkImageExists(
+    version: string,
+  ): Promise<{ exists: boolean | null; detail: string }> {
+    const config = await this.configService.getConfig();
+    const prefix = config.dockerImagePrefix || 'miaochi/bnoa';
+    const details: string[] = [];
+
+    for (const suffix of ['backend', 'frontend']) {
+      const repo = `${prefix}-${suffix}`;
+      const url = `https://hub.docker.com/v2/repositories/${repo}/tags/${version}`;
+      try {
+        await axios.get(url, { timeout: 10000 });
+        details.push(`${repo}:${version} 存在`);
+      } catch (error) {
+        if (error.response?.status === 404) {
+          details.push(`${repo}:${version} 不存在`);
+          return { exists: false, detail: details.join('；') };
+        }
+        return {
+          exists: null,
+          detail: `无法确认镜像是否存在（${error.message}）`,
+        };
+      }
+    }
+
+    return { exists: true, detail: details.join('；') };
+  }
+
   async setCurrentVersion(version: string): Promise<void> {
     const config = await this.configService.getConfig();
     const imagePrefix = config.dockerImagePrefix || 'miaochi/bnoa';

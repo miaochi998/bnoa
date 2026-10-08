@@ -204,6 +204,90 @@ export class PortainerService {
     }
   }
 
+  /**
+   * 获取栈内容器「实际运行」的镜像与版本
+   *
+   * ⚠️ 与 getStackEnv() 读到的 APP_VERSION（期望值）有本质区别：
+   * 这里读的是 Docker 容器**真实使用的镜像 tag**，是判断「升级是否真的生效」的唯一可靠依据。
+   *
+   * 背景：若 stack compose 里镜像 tag 被硬编码（未使用 ${APP_VERSION} 变量），
+   * 更新栈变量后容器仍会以旧镜像重建 —— 只看 APP_VERSION 会得到"已升级"的错误结论。
+   */
+  async getRunningVersions(): Promise<{
+    backendVersion: string | null;
+    frontendVersion: string | null;
+    versionsConsistent: boolean;
+    allHealthy: boolean;
+    containers: Array<{
+      name: string;
+      image: string;
+      version: string | null;
+      state: string;
+      status: string;
+      healthy: boolean;
+    }>;
+  }> {
+    const containers = await this.getContainers();
+
+    const parsed = containers.map((c) => {
+      // 从 image 引用中解析 tag：形如 miaochi/bnoa-backend:0.5.0 或 name@sha256:...
+      const atIdx = c.image.indexOf('@');
+      const ref = atIdx >= 0 ? c.image.slice(0, atIdx) : c.image;
+      const lastColon = ref.lastIndexOf(':');
+      const lastSlash = ref.lastIndexOf('/');
+      const version = lastColon > lastSlash ? ref.slice(lastColon + 1) : null;
+
+      // 注意：无 healthcheck 的容器（如 redis）状态里没有 "(healthy)"，
+      // 因此以「running 且非 unhealthy」作为健康判据，避免误判。
+      const healthy = c.state === 'running' && !/unhealthy/i.test(c.status);
+
+      return {
+        name: c.name,
+        image: c.image,
+        version,
+        state: c.state,
+        status: c.status,
+        healthy,
+      };
+    });
+
+    const backend = parsed.find((c) => c.name.endsWith('-backend'));
+    const frontend = parsed.find((c) => c.name.endsWith('-frontend'));
+
+    return {
+      backendVersion: backend?.version ?? null,
+      frontendVersion: frontend?.version ?? null,
+      versionsConsistent:
+        !!backend?.version && backend.version === frontend?.version,
+      allHealthy: parsed.length > 0 && parsed.every((c) => c.healthy),
+      containers: parsed,
+    };
+  }
+
+  /**
+   * 检查栈 compose 里 OA 镜像是否使用了 ${APP_VERSION} 变量
+   *
+   * 典型故障：镜像行被写死成 `image: miaochi/bnoa-backend:0.4.0`，
+   * 此时更新栈变量 APP_VERSION 毫无作用 —— 重建后仍是旧镜像，且不报任何错。
+   * 因此在升级前预检此项，把注定失败的升级挡在动手之前。
+   */
+  async isStackFileUsingVersionVar(): Promise<{
+    ok: boolean;
+    hardcoded: string[];
+  }> {
+    const content = await this.getStackFile();
+
+    const hardcoded = content
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('image:'))
+      // 只关心 OA 自己的镜像（backend / frontend），postgres/redis/clamav 用固定 tag 属正常
+      .filter((l) => /bnoa|(?:^|[^a-z])-?(backend|frontend):/.test(l))
+      .filter((l) => !l.includes('${'));
+
+    return { ok: hardcoded.length === 0, hardcoded };
+  }
+
   resetClient(): void {
     this.client = null;
   }

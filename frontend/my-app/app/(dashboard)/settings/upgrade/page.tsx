@@ -47,6 +47,19 @@ interface UpgradeProgressState {
   elapsedSeconds: number;
   versionFrom: string;
   versionTo: string;
+  /** 容器**实际运行**的镜像版本 —— 来自后端核对，是判定升级结果的唯一事实依据 */
+  actualVersion?: string | null;
+  /** OA 各容器的真实状态 */
+  containers?: Array<{
+    name: string;
+    image: string;
+    version: string | null;
+    status: string;
+    healthy: boolean;
+  }>;
+  allHealthy?: boolean;
+  /** 失败时的详细原因（后端会给出可操作的排查提示，可能多行） */
+  errorMessage?: string | null;
 }
 
 function UpgradeProgressPanel({
@@ -57,9 +70,9 @@ function UpgradeProgressPanel({
   onClose: () => void;
 }) {
   const phases = [
-    { key: "sending", label: "发送升级请求", icon: ArrowUpCircle },
-    { key: "waiting", label: "等待服务重启", icon: Server },
-    { key: "checking", label: "验证升级结果", icon: Shield },
+    { key: "sending", label: "发送升级请求（含预检）", icon: ArrowUpCircle },
+    { key: "waiting", label: "等待服务重启 / 拉取镜像", icon: Server },
+    { key: "checking", label: "核对容器实际镜像", icon: Shield },
   ];
 
   const getPhaseIndex = () => {
@@ -144,31 +157,60 @@ function UpgradeProgressPanel({
           })}
         </div>
 
-        {/* 计时器 */}
+        {/* 计时器 + 容器实际运行版本（事实依据，非期望值） */}
         <div className="flex items-center justify-between text-sm text-muted-foreground border-t pt-3">
           <span>已用时间: {state.elapsedSeconds}s</span>
-          {!isFinished && (
+          {state.actualVersion ? (
+            <span className="font-mono text-xs">
+              容器实际运行: {state.actualVersion}
+            </span>
+          ) : !isFinished ? (
             <span className="text-xs">请勿关闭此页面</span>
-          )}
+          ) : null}
         </div>
 
         {/* 结果信息 */}
         {state.phase === "success" && (
-          <div className="rounded-lg bg-green-500/10 border border-green-500/30 p-4 text-sm">
-            <div className="flex items-center gap-2 text-green-600 dark:text-green-400 font-medium mb-1">
+          <div className="rounded-lg bg-green-500/10 border border-green-500/30 p-4 text-sm space-y-2">
+            <div className="flex items-center gap-2 text-green-600 dark:text-green-400 font-medium">
               <CheckCircle2 className="w-4 h-4" />
-              升级完成
+              升级完成（已核对容器实际镜像）
             </div>
             <div className="text-muted-foreground">{state.message}</div>
+            {state.containers?.length ? (
+              <div className="pt-2 border-t border-green-500/20 space-y-1 text-xs">
+                {state.containers.map((c) => (
+                  <div
+                    key={c.name}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <span className="text-muted-foreground truncate">
+                      {c.name}
+                    </span>
+                    <span
+                      className={
+                        c.healthy
+                          ? "text-green-600 dark:text-green-400 font-mono"
+                          : "text-destructive font-mono"
+                      }
+                    >
+                      {c.version || "?"} · {c.healthy ? "healthy" : "异常"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         )}
         {state.phase === "failed" && (
-          <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-4 text-sm">
-            <div className="flex items-center gap-2 text-destructive font-medium mb-1">
+          <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-4 text-sm space-y-2">
+            <div className="flex items-center gap-2 text-destructive font-medium">
               <XCircle className="w-4 h-4" />
               升级异常
             </div>
-            <div className="text-muted-foreground">{state.message}</div>
+            <div className="text-muted-foreground whitespace-pre-line text-xs leading-relaxed">
+              {state.errorMessage || state.message}
+            </div>
           </div>
         )}
 
@@ -254,7 +296,9 @@ function UpgradeManagementTab() {
   // 轮询检测后端是否恢复
   const startPolling = (targetVersion: string, versionFrom: string) => {
     let elapsedSeconds = 0;
-    const MAX_WAIT_SECONDS = 300; // 最多等5分钟
+    // 生产实测：Portainer 需先拉取镜像再重建，整体可达 5 分钟以上，
+    // 因此把等待上限放宽到 10 分钟（后端自己的判定超时同为 10 分钟）。
+    const MAX_WAIT_SECONDS = 600;
 
     // 计时器：每秒更新已用时间
     upgradeTimerRef.current = setInterval(() => {
@@ -264,43 +308,74 @@ function UpgradeManagementTab() {
       );
     }, 1000);
 
-    // 轮询器：每5秒检查后端是否恢复
+    // 轮询器：每5秒查询一次真实状态
     const poll = async () => {
       try {
-        const versionData = await upgradeAPI.getCurrentVersion();
-        // 后端已恢复
-        if (versionData?.version === targetVersion) {
-          // 升级成功！
+        // ⚠️ 判据来自后端对「容器实际运行的镜像」的核对，而不是 OA 自记的版本。
+        // 历史教训：过去这里读 /upgrade/version（OA 自记的期望值，且在升级第 1 步
+        // 就被写成目标版本），导致后端一重启就"秒报成功"，即便容器根本没升级。
+        const progress = await upgradeAPI.getUpgradeProgress();
+
+        const facts = {
+          actualVersion: progress?.actualVersion ?? null,
+          containers: progress?.containers ?? [],
+          allHealthy: progress?.allHealthy ?? false,
+        };
+
+        if (progress?.status === "success") {
           cleanup();
           setUpgradeProgress((prev) =>
             prev
               ? {
                   ...prev,
                   phase: "success",
-                  message: `系统已成功升级到 v${targetVersion}`,
+                  ...facts,
+                  message: `已核对容器实际镜像，系统成功升级到 v${targetVersion}`,
                 }
               : prev
           );
           return;
         }
-        // 后端恢复但版本不对
+
+        if (progress?.status === "failed") {
+          cleanup();
+          setUpgradeProgress((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  phase: "failed",
+                  ...facts,
+                  errorMessage:
+                    progress?.errorMessage ||
+                    progress?.message ||
+                    "升级失败，请检查容器状态",
+                }
+              : prev
+          );
+          return;
+        }
+
+        // 仍在进行中：展示容器当前实际运行的版本，让等待过程可观测
         setUpgradeProgress((prev) =>
           prev
             ? {
                 ...prev,
                 phase: "checking",
-                message: `后端已恢复，正在验证版本... (当前: v${versionData?.version})`,
+                ...facts,
+                message:
+                  progress?.message ||
+                  `正在核对容器实际镜像...（当前 ${facts.actualVersion ?? "未知"}）`,
               }
             : prev
         );
       } catch {
-        // 后端还没恢复，继续等待
+        // 后端正在重启 → 连接不可用属预期现象，继续等待
         setUpgradeProgress((prev) =>
           prev
             ? {
                 ...prev,
                 phase: "waiting",
-                message: "服务正在重启中，请耐心等待...",
+                message: "服务正在重启中，请耐心等待（连接暂时中断属正常现象）...",
               }
             : prev
         );
@@ -314,7 +389,12 @@ function UpgradeManagementTab() {
             ? {
                 ...prev,
                 phase: "failed",
-                message: "等待超时，请手动检查 Portainer 中的容器状态，或刷新页面查看结果。",
+                errorMessage:
+                  `等待超时（${Math.round(MAX_WAIT_SECONDS / 60)} 分钟）：后端未在时限内完成核对。\n` +
+                  `可能原因：\n` +
+                  `· 镜像拉取慢或失败（请查看服务器上 Portainer 的容器日志）\n` +
+                  `· 栈配置异常（如镜像 tag 被写死、未使用 \${APP_VERSION} 变量）\n` +
+                  `建议：刷新页面查看升级日志，或登录 Portainer 检查容器状态。`,
               }
             : prev
         );
