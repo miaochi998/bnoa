@@ -288,6 +288,107 @@ export class PortainerService {
     return { ok: hardcoded.length === 0, hardcoded };
   }
 
+  /**
+   * 通过 Docker daemon 拉取镜像，用于升级前预检与预拉取。
+   *
+   * ⚠️ 为什么不由后端直接请求 Docker Hub：
+   * 本环境服务器**容器内无法直连** Docker Hub / registry（实测均超时，仅 api.github.com 可达）；
+   * daemon 则配置了 4 个镜像加速器（轩辕镜像等），能正常拉取。故**必须借助 daemon**。
+   *
+   * ⚠️ 本环境的特殊语义（实测确认）：
+   * - 镜像**存在**时 → 加速器命中 → 快速返回 `Status: Image is up to date`；
+   * - 镜像**不存在**时 → 加速器无缓存 → **回源 Docker Hub → 超时**，
+   *   且与"网络故障"表现一致，**无法区分**。
+   * 因此这里区分三态，避免把网络抖动误判成"镜像不存在"而拦掉正常升级：
+   * - `ready`   镜像已就绪（顺带完成预拉取，升级重建更快）
+   * - `missing` **确定**不存在（404 / manifest unknown 等明确信号）→ 调用方应拦截
+   * - `unknown` 无法判定（超时、网络错误等）→ 调用方应放行
+   */
+  async pullImage(
+    repo: string,
+    tag: string,
+  ): Promise<{ status: 'ready' | 'missing' | 'unknown'; message: string }> {
+    const enabled = await this.isEnabled();
+    if (!enabled) {
+      throw new Error('Portainer 集成未启用');
+    }
+
+    const config = await this.configService.getConfig();
+    const client = await this.getClient();
+    const ref = `${repo}:${tag}`;
+
+    try {
+      await client.post(
+        `/api/endpoints/${config.portainerEndpointId}/docker/images/create`,
+        null,
+        {
+          params: { fromImage: repo, tag },
+          timeout: 180000, // 预拉取可能较慢；超时即视为 unknown 并放行
+        },
+      );
+      return { status: 'ready', message: `${ref} 已就绪（预拉取完成）` };
+    } catch (error) {
+      const httpStatus = error.response?.status;
+      const detail =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        error?.message ||
+        error?.code ||
+        '未知原因';
+      const detailStr = String(detail);
+
+      // 仅"明确不存在"才判定 missing；本环境下不存在通常表现为超时，故不会走到这里，
+      // 但保留该分支以兼容加速器直接返回明确 404 / manifest unknown 的情况。
+      const explicitlyMissing =
+        httpStatus === 404 ||
+        /manifest unknown|not found|no such (image|manifest|repository)|不存在/i.test(
+          detailStr,
+        );
+
+      if (explicitlyMissing) {
+        return { status: 'missing', message: `${ref} 不存在（${detailStr}）` };
+      }
+      return {
+        status: 'unknown',
+        message: `${ref} 预拉取未完成（${detailStr}）`,
+      };
+    }
+  }
+
+  /**
+   * 预拉取 OA 的前后端镜像（backend + frontend），用于升级前预检。
+   *
+   * 语义：
+   * - 任一镜像**确定不存在** → `ok=false`（调用方拦截，避免白等 10 分钟）；
+   * - 出现 `unknown`（网络/超时）→ **立即短路并放行**，不再试下一个镜像（避免重复等待）；
+   * - 全部 `ready` → `ok=true`，此时镜像已在本地，升级重建更快。
+   */
+  async pullOaImages(
+    version: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    const config = await this.configService.getConfig();
+    const prefix = config.dockerImagePrefix || 'miaochi/bnoa';
+    const results: string[] = [];
+
+    for (const suffix of ['backend', 'frontend']) {
+      const r = await this.pullImage(`${prefix}-${suffix}`, version);
+      results.push(r.message);
+
+      if (r.status === 'missing') {
+        return { ok: false, message: results.join('；') };
+      }
+      if (r.status === 'unknown') {
+        // 无法判定时不再继续尝试其它镜像，直接放行
+        return {
+          ok: true,
+          message: `${results.join('；')}（未能完成校验，按原流程继续）`,
+        };
+      }
+    }
+
+    return { ok: true, message: results.join('；') };
+  }
+
   resetClient(): void {
     this.client = null;
   }

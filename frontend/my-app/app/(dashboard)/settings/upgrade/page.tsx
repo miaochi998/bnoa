@@ -294,7 +294,11 @@ function UpgradeManagementTab() {
   };
 
   // 轮询检测后端是否恢复
-  const startPolling = (targetVersion: string, versionFrom: string) => {
+  const startPolling = (
+    targetVersion: string,
+    versionFrom: string,
+    upgradeId?: string,
+  ) => {
     let elapsedSeconds = 0;
     // 生产实测：Portainer 需先拉取镜像再重建，整体可达 5 分钟以上，
     // 因此把等待上限放宽到 10 分钟（后端自己的判定超时同为 10 分钟）。
@@ -314,7 +318,7 @@ function UpgradeManagementTab() {
         // ⚠️ 判据来自后端对「容器实际运行的镜像」的核对，而不是 OA 自记的版本。
         // 历史教训：过去这里读 /upgrade/version（OA 自记的期望值，且在升级第 1 步
         // 就被写成目标版本），导致后端一重启就"秒报成功"，即便容器根本没升级。
-        const progress = await upgradeAPI.getUpgradeProgress();
+        const progress = await upgradeAPI.getUpgradeProgress(upgradeId);
 
         const facts = {
           actualVersion: progress?.actualVersion ?? null,
@@ -435,9 +439,13 @@ function UpgradeManagementTab() {
       versionTo,
     });
 
+    // 记录本次升级记录 id：轮询时带上它才能准确追踪这条记录。
+    // （不带 id 时后端只返回"进行中"的记录，升级一完成就会变成"暂无升级记录"）
+    let upgradeId: string | undefined;
     try {
       // 发送升级请求（后端 fire-and-forget 会快速返回）
-      await upgradeAPI.executeUpgrade(versionTo);
+      const result = await upgradeAPI.executeUpgrade(versionTo);
+      upgradeId = result?.id;
       // 请求成功返回，进入等待阶段
       setUpgradeProgress((prev) =>
         prev
@@ -462,7 +470,7 @@ function UpgradeManagementTab() {
     }
 
     // 无论请求成功还是失败，都启动轮询检测
-    startPolling(versionTo, versionFrom);
+    startPolling(versionTo, versionFrom, upgradeId);
   };
 
   const getStatusBadge = (status: string) => {

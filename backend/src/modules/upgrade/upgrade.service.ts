@@ -135,7 +135,20 @@ export class UpgradeService implements OnApplicationBootstrap {
             completedAt.getTime() - new Date(upgradeLog.startedAt).getTime(),
           errorMessage: null,
           stepsLog: stepsToJson([
-            ...steps.filter((s) => s.name !== 'verify_runtime'),
+            ...steps
+              .filter((s) => s.name !== 'verify_runtime')
+              // update_stack 的请求已发出、容器也已完成重建 → 收尾标记为 success；
+              // 否则前端会一直显示该步骤转圈（后端随升级重启，无法在原进程里回写状态）。
+              .map((s) =>
+                s.name === 'update_stack' && s.status === 'running'
+                  ? {
+                      ...s,
+                      status: 'success' as const,
+                      message: '堆栈更新请求已发出，容器已完成重建',
+                      completedAt: completedAt.toISOString(),
+                    }
+                  : s,
+              ),
             {
               name: 'verify_runtime',
               status: 'success',
@@ -182,7 +195,18 @@ export class UpgradeService implements OnApplicationBootstrap {
         completedAt: new Date(),
         errorMessage: reason,
         stepsLog: stepsToJson([
-          ...steps.filter((s) => s.name !== 'verify_runtime'),
+          ...steps
+            .filter((s) => s.name !== 'verify_runtime')
+            .map((s) =>
+              s.name === 'update_stack' && s.status === 'running'
+                ? {
+                    ...s,
+                    status: 'success' as const,
+                    message: '堆栈更新请求已发出，容器已完成重建',
+                    completedAt: new Date().toISOString(),
+                  }
+                : s,
+            ),
           {
             name: 'verify_runtime',
             status: 'failed',
@@ -229,16 +253,6 @@ export class UpgradeService implements OnApplicationBootstrap {
       }
     } catch {
       /* 诊断失败不影响结论 */
-    }
-
-    try {
-      const imageCheck =
-        await this.versionService.checkImageExists(targetVersion);
-      if (imageCheck.exists === false) {
-        hints.push(`Docker Hub 上未找到目标镜像：${imageCheck.detail}`);
-      }
-    } catch {
-      /* 同上 */
     }
 
     const unhealthy = (running.containers || []).filter((c) => !c.healthy);
@@ -313,6 +327,23 @@ export class UpgradeService implements OnApplicationBootstrap {
       // 导致后续"成功判定"退化成「自己写的期望值 == 目标值」的自我验证 ——
       // 无论容器实际是否升级，后端重启后自检都会判定成功（测试机曾因此静默假成功）。
       // 现在改为：预检只读；版本记录仅在**核对容器实际镜像通过后**才更新（见 verifyAndFinalize）。
+      // 预检开始前先落一条 running 状态，让前端能立刻看到"预检进行中"。
+      // 原因：executeStep 只在**完成后**才返回结果，期间 stepsLog 里若没有该步骤，
+      // 前端会把它显示成"待执行"，预检耗时（含镜像预拉取）时用户看不到任何进展。
+      await this.prisma.upgradeLog.update({
+        where: { id: upgradeLog.id },
+        data: {
+          stepsLog: stepsToJson([
+            {
+              name: 'preflight',
+              status: 'running',
+              message: '正在校验栈配置并预拉取镜像（可能需要数分钟）...',
+              startedAt: new Date().toISOString(),
+            },
+          ]),
+        },
+      });
+
       const preflightStep = await this.executeStep(
         'preflight',
         '升级前预检',
@@ -329,12 +360,14 @@ export class UpgradeService implements OnApplicationBootstrap {
             );
           }
 
-          // ② 目标版本镜像必须存在（查询本身失败时不阻断，避免网络抖动误拦）
-          const imageCheck =
-            await this.versionService.checkImageExists(targetVersion);
-          if (imageCheck.exists === false) {
+          // ② 目标镜像必须存在：交由 Docker daemon 预拉取来判断。
+          //    ⚠️ 不能让后端直接请求 Docker Hub —— 本环境服务器**容器内无法直连**
+          //    Docker Hub / registry（拉镜像走 daemon 层的加速器，容器内 HTTP 不走加速器，
+          //    实测均超时）。由 daemon 判断才可靠；顺带把镜像预拉到本地，升级重建更快。
+          const imageCheck = await this.portainerService.pullOaImages(targetVersion);
+          if (!imageCheck.ok) {
             throw new Error(
-              `目标镜像不存在：${imageCheck.detail}。请确认该版本已构建并推送到 Docker Hub。`,
+              `目标镜像不存在：${imageCheck.message}。请确认该版本已构建并推送到 Docker Hub。`,
             );
           }
 
@@ -342,7 +375,7 @@ export class UpgradeService implements OnApplicationBootstrap {
             currentRunningVersion: running.backendVersion,
             containersHealthy: running.allHealthy,
             stackImageUsesVariable: stackCheck.ok,
-            imageCheck: imageCheck.detail,
+            imageCheck: imageCheck.message,
           };
         },
       );
