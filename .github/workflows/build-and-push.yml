@@ -11,6 +11,11 @@ on:
         required: true
         type: string
 
+# ⚠️ 必须显式声明：GitHub 新建仓库的默认 workflow 权限是 read，
+# 创建 GitHub Release 需要 contents: write，否则会 403「Resource not accessible by integration」。
+permissions:
+  contents: write
+
 env:
   DOCKER_IMAGE_PREFIX: ${{ secrets.DOCKER_HUB_USERNAME }}/bnoa
 
