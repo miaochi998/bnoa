@@ -91,3 +91,8 @@ backend/AGENTS.md
 frontend/my-app/AGENTS.md
 /.dsh/
 PROJECT_MEMORY.md
+
+# ====================
+# 内部文档（仅本地参考，不提交到公开仓库）
+# ====================
+docs/
