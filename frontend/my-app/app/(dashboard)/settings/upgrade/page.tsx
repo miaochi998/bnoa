@@ -300,9 +300,10 @@ function UpgradeManagementTab() {
     upgradeId?: string,
   ) => {
     let elapsedSeconds = 0;
-    // 生产实测：Portainer 需先拉取镜像再重建，整体可达 5 分钟以上，
-    // 因此把等待上限放宽到 10 分钟（后端自己的判定超时同为 10 分钟）。
-    const MAX_WAIT_SECONDS = 600;
+    // 生产实测：Portainer 需先拉取镜像再重建，整体可达 5 分钟以上；
+    // 冷启动（镜像未预拉取）时后端约 143s + 前端约 92s，再叠加重建 1–2 分钟，
+    // 因此把等待上限放宽到 15 分钟（后端自身的判定超时为 10 分钟）。
+    const MAX_WAIT_SECONDS = 900;
 
     // 计时器：每秒更新已用时间
     upgradeTimerRef.current = setInterval(() => {

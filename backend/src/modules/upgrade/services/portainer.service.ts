@@ -323,7 +323,7 @@ export class PortainerService {
         null,
         {
           params: { fromImage: repo, tag },
-          timeout: 180000, // 预拉取可能较慢；超时即视为 unknown 并放行
+          timeout: 300000, // 预拉取可能较慢（冷启动实测 143s）；超时即视为 unknown 并放行
         },
       );
       return { status: 'ready', message: `${ref} 已就绪（预拉取完成）` };
