@@ -299,15 +299,20 @@ function UpgradeManagementTab() {
     versionFrom: string,
     upgradeId?: string,
   ) => {
-    let elapsedSeconds = 0;
+    // ⚠️ 已用时间用「起始时间戳相减」计算，而不是 `elapsedSeconds += 1` 累加：
+    // 浏览器对**后台标签页**的 setInterval 有节流，累加会让计时严重偏慢
+    // （生产实测：界面显示 10s，实际已过 110s）。
+    const startedAt = Date.now();
+    const elapsed = () => Math.round((Date.now() - startedAt) / 1000);
+
     // 生产实测：Portainer 需先拉取镜像再重建，整体可达 5 分钟以上；
     // 冷启动（镜像未预拉取）时后端约 143s + 前端约 92s，再叠加重建 1–2 分钟，
     // 因此把等待上限放宽到 15 分钟（后端自身的判定超时为 10 分钟）。
     const MAX_WAIT_SECONDS = 900;
 
-    // 计时器：每秒更新已用时间
+    // 计时器：每秒刷新已用时间
     upgradeTimerRef.current = setInterval(() => {
-      elapsedSeconds += 1;
+      const elapsedSeconds = elapsed();
       setUpgradeProgress((prev) =>
         prev ? { ...prev, elapsedSeconds } : prev
       );
@@ -327,7 +332,12 @@ function UpgradeManagementTab() {
           allHealthy: progress?.allHealthy ?? false,
         };
 
-        if (progress?.status === "success") {
+        // 兼容「响应丢失、前端没拿到 upgradeId」的情况：不带 id 时后端会返回最近一条记录，
+        // 这里用 versionTo 二次确认它确实属于本次升级，避免把历史记录误当成本次结果。
+        const isSameUpgrade =
+          !progress?.versionTo || progress.versionTo === targetVersion;
+
+        if (progress?.status === "success" && isSameUpgrade) {
           cleanup();
           setUpgradeProgress((prev) =>
             prev
@@ -342,7 +352,7 @@ function UpgradeManagementTab() {
           return;
         }
 
-        if (progress?.status === "failed") {
+        if (progress?.status === "failed" && isSameUpgrade) {
           cleanup();
           setUpgradeProgress((prev) =>
             prev
@@ -389,7 +399,7 @@ function UpgradeManagementTab() {
       // 超时判断：**先做最后一次核对再下结论**。
       // 历史教训：升级其实已成功（容器镜像已是目标版本），但前端因查不到记录而
       // 在超时后武断报"升级异常"，把成功误报成失败。
-      if (elapsedSeconds >= MAX_WAIT_SECONDS) {
+      if (elapsed() >= MAX_WAIT_SECONDS) {
         cleanup();
         try {
           const final = await upgradeAPI.getUpgradeProgress(upgradeId);

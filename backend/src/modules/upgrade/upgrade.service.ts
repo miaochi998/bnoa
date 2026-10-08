@@ -592,10 +592,18 @@ export class UpgradeService implements OnApplicationBootstrap {
     allHealthy: boolean;
     elapsedSeconds: number;
   }> {
+    // 不带 upgradeId 时返回「最近一条记录」（不限状态）。
+    //
+    // ⚠️ 不能只找"进行中"的记录：升级会重启后端自身 —— Portainer 开始重建后本进程被 kill，
+    // execute 接口的 HTTP 响应可能**没能送达前端**，前端因此拿不到本次升级的 id。
+    // 此时若只查"进行中"，升级一旦完成（状态转为 success/failed）就再也查不到，
+    // 前端会永远停在"核对容器实际镜像"直到超时（生产实测：真实 20.7s，界面却转圈 139s+）。
+    //
+    // 安全性：调用方只在**主动发起升级后**才开始轮询，故"最近一条"必为本次记录；
+    // 前端另有 versionTo 可作二次校验。
     const log = upgradeId
       ? await this.prisma.upgradeLog.findUnique({ where: { id: upgradeId } })
       : await this.prisma.upgradeLog.findFirst({
-          where: { status: { in: ['running', 'deploying'] } },
           orderBy: { startedAt: 'desc' },
         });
 
