@@ -1,0 +1,12 @@
+<p>您好，{{userName}}：</p>
+<p>您收到一条{{#if priority}}{{#ifCond priority '==' 'URGENT'}}<span style="color:#ef4444;font-weight:bold;">【紧急】</span>{{/ifCond}}{{#ifCond priority '==' 'HIGH'}}<span style="color:#f97316;font-weight:bold;">【重要】</span>{{/ifCond}}{{/if}}通知：</p>
+<div class="info-box">
+    <p><strong>{{title}}</strong></p>
+    {{#if content}}
+    <p>{{content}}</p>
+    {{/if}}
+</div>
+{{#if actionUrl}}
+<p><a href="{{actionUrl}}" class="btn">查看详情</a></p>
+{{/if}}
+<p>此邮件由 BNOA 办公自动化系统自动发送，请勿直接回复。</p>

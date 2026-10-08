@@ -1,0 +1,11 @@
+<p>系统管理员您好，</p>
+<div class="alert-box">
+    <strong>安全告警 [{{severity}}]</strong>
+    <p>类型：{{alertType}}</p>
+    <p>时间：{{timestamp}}</p>
+    <p>详情：{{details}}</p>
+</div>
+{{#if actionRequired}}
+<p><strong>建议操作</strong>：{{actionRequired}}</p>
+{{/if}}
+<p>请登录管理后台查看详细信息并及时处理。</p>

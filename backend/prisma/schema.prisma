@@ -1,0 +1,2131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                     String                  @id @default(uuid())
+  username               String                  @unique @db.VarChar(50)
+  email                  String                  @unique @db.VarChar(255)
+  phone                  String?                 @unique @db.VarChar(20)
+  password               String                  @db.VarChar(255)
+  name                   String                  @db.VarChar(100)
+  avatar                 String?                 @db.VarChar(500)
+  description            String?
+  status                 UserStatus              @default(ACTIVE)
+  lastLoginAt            DateTime?               @map("last_login_at")
+  lastLoginIp            String?                 @map("last_login_ip") @db.VarChar(50)
+  loginCount             Int                     @default(0) @map("login_count")
+  failedAttempts         Int                     @default(0) @map("failed_attempts")
+  lockedUntil            DateTime?               @map("locked_until")
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+  deletedAt              DateTime?               @map("deleted_at")
+  createdBy              String?                 @map("created_by")
+  updatedBy              String?                 @map("updated_by")
+  auditLogs              AuditLog[]
+  captchaBackgrounds     CaptchaBackground[]
+  files                  File[]
+  sharedByFolderShares   FolderShare[]           @relation("folder_shares_shared_byTousers")
+  sharedWithFolderShares FolderShare[]           @relation("folder_shares_shared_with_user_idTousers")
+  folders                Folder[]
+  notebooks              Notebook[]
+  notificationBroadcasts NotificationBroadcast[]
+  notificationSettings   NotificationSetting[]
+  notifications          Notification[]
+  profitReports          ProfitReport[]
+  refreshTokens          RefreshToken[]
+  securityLogs           SecurityLog[]
+  shops                  Shop[]
+  talentContactLogs      TalentContactLog[]
+  talentFlagConfigs      TalentFlagConfig[]
+  talentFlags            TalentFlag[]
+  createdTalentTransfers TalentTransfer[]        @relation("talent_transfers_created_byTousers")
+  fromTalentTransfers    TalentTransfer[]        @relation("talent_transfers_from_user_idTousers")
+  toTalentTransfers      TalentTransfer[]        @relation("talent_transfers_to_user_idTousers")
+  talents                Talent[]
+  upgradeLogs            UpgradeLog[]            @relation("userUpgradeLogs")
+  userRoles              UserRole[]
+  backupLogs             BackupLog[]             @relation("userBackupLogs")
+  restoreLogs            RestoreLog[]            @relation("userRestoreLogs")
+  numberCheckBatches     NumberCheckBatch[]
+  numberCheckRecords     NumberCheckRecord[]
+  paymentPayerRecords    PaymentRecord[]     @relation("PaymentPayer")
+
+  @@index([email])
+  @@index([username])
+  @@index([phone])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model Role {
+  id              String           @id @default(uuid())
+  name            String           @unique @db.VarChar(50)
+  code            String           @unique @db.VarChar(50)
+  description     String?          @db.VarChar(255)
+  sortOrder       Int              @default(0) @map("sort_order")
+  isSystem        Boolean          @default(false) @map("is_system")
+  isActive        Boolean          @default(true) @map("is_active")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  deletedAt       DateTime?        @map("deleted_at")
+  createdBy       String?          @map("created_by")
+  updatedBy       String?          @map("updated_by")
+  folderShares    FolderShare[]
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@index([code])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("roles")
+}
+
+model UserRole {
+  userId    String   @map("user_id")
+  roleId    String   @map("role_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by")
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model Permission {
+  id              String           @id @default(uuid())
+  name            String           @db.VarChar(100)
+  code            String           @unique @db.VarChar(100)
+  description     String           @db.VarChar(255)
+  type            String           @db.VarChar(50)
+  parentId        String?          @map("parent_id")
+  sortOrder       Int              @default(0) @map("sort_order")
+  icon            String?          @db.VarChar(100)
+  path            String?          @db.VarChar(255)
+  component       String?          @db.VarChar(255)
+  hidden          Boolean          @default(false)
+  keepAlive       Boolean          @default(false) @map("keep_alive")
+  isActive        Boolean          @default(true) @map("is_active")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  parent          Permission?      @relation("PermissionHierarchy", fields: [parentId], references: [id])
+  children        Permission[]     @relation("PermissionHierarchy")
+  rolePermissions RolePermission[]
+
+  @@index([code])
+  @@index([type])
+  @@index([parentId])
+  @@index([isActive])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id")
+  permissionId String     @map("permission_id")
+  dataScope    String?    @map("data_scope") @db.VarChar(50)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  createdBy    String?    @map("created_by")
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model File {
+  id                 String             @id @default(uuid())
+  name               String             @db.VarChar(255)
+  originalName       String             @map("original_name") @db.VarChar(255)
+  mimeType           String             @map("mime_type") @db.VarChar(100)
+  extension          String             @db.VarChar(20)
+  size               BigInt
+  md5                String?            @db.VarChar(32)
+  storageType        StorageType        @default(RUSTFS) @map("storage_type")
+  bucket             String             @db.VarChar(100)
+  path               String             @db.VarChar(500)
+  url                String             @db.VarChar(500)
+  thumbnailUrl       String?            @map("thumbnail_url") @db.VarChar(500)
+  access             FileAccess         @default(PRIVATE)
+  shareCode          String?            @unique @map("share_code") @db.VarChar(32)
+  shareExpireAt      DateTime?          @map("share_expire_at")
+  status             String?            @default("ACTIVE") @db.VarChar(20)
+  quarantinedAt      DateTime?          @map("quarantined_at")
+  quarantineReason   String?            @map("quarantine_reason") @db.VarChar(500)
+  quarantinePath     String?            @map("quarantine_path") @db.VarChar(500)
+  virusScanResult    String?            @map("virus_scan_result") @db.VarChar(100)
+  virusScanAt        DateTime?          @map("virus_scan_at")
+  folderId           String?            @map("folder_id")
+  uploadedBy         String             @map("uploaded_by")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+  deletedAt          DateTime?          @map("deleted_at")
+  category           FileCategory       @default(OTHER)
+  duration           Int?
+  height             Int?
+  sha256             String?            @db.VarChar(64)
+  width              Int?
+  shareAccess        String?            @map("share_access") @db.VarChar(20)
+  sharePassword      String?            @map("share_password") @db.VarChar(100)
+  source             FileSource         @default(UPLOAD)
+  folder             Folder?            @relation(fields: [folderId], references: [id])
+  user               User               @relation(fields: [uploadedBy], references: [id])
+  numberCheckBatches NumberCheckBatch[]
+  paymentBills       PaymentBill[]       @relation("PaymentBillFile")
+  paymentAttachments PaymentAttachment[] @relation("PaymentAttachmentFile")
+
+  @@index([folderId])
+  @@index([uploadedBy])
+  @@index([access])
+  @@index([shareCode])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@index([category])
+  @@index([md5])
+  @@index([source])
+  @@map("files")
+}
+
+model Folder {
+  id             String          @id @default(uuid())
+  name           String          @db.VarChar(255)
+  description    String?         @db.VarChar(500)
+  icon           String?         @db.VarChar(50)
+  sortOrder      Int             @default(0) @map("sort_order")
+  parentId       String?         @map("parent_id")
+  realFolderId   String?         @map("real_folder_id")
+  isVirtual      Boolean         @default(false) @map("is_virtual")
+  isSystem       Boolean         @default(false) @map("is_system")
+  shareType      FolderShareType @default(NONE) @map("share_type")
+  isSystemShared Boolean         @default(false) @map("is_system_shared")
+  access         FileAccess      @default(PRIVATE)
+  createdBy      String          @map("created_by")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  deletedAt      DateTime?       @map("deleted_at")
+  files          File[]
+  folderShares   FolderShare[]
+  user           User            @relation(fields: [createdBy], references: [id])
+  parent         Folder?         @relation("FolderHierarchy", fields: [parentId], references: [id])
+  children       Folder[]        @relation("FolderHierarchy")
+  realFolder     RealFolder?     @relation(fields: [realFolderId], references: [id])
+  uploadSessions UploadSession[]
+
+  @@index([parentId])
+  @@index([createdBy])
+  @@index([access])
+  @@index([deletedAt])
+  @@index([realFolderId])
+  @@index([shareType])
+  @@map("folders")
+}
+
+model Config {
+  id          String    @id @default(uuid())
+  key         String    @unique @db.VarChar(100)
+  value       String
+  type        String    @db.VarChar(50)
+  description String?   @db.VarChar(255)
+  category    String    @db.VarChar(50)
+  sortOrder   Int       @default(0) @map("sort_order")
+  isSystem    Boolean   @default(false) @map("is_system")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  createdBy   String?   @map("created_by")
+  updatedBy   String?   @map("updated_by")
+
+  @@index([category])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("configs")
+}
+
+model Dictionary {
+  id          String    @id @default(uuid())
+  typeCode    String    @map("type_code") @db.VarChar(50)
+  typeName    String    @map("type_name") @db.VarChar(100)
+  itemCode    String    @map("item_code") @db.VarChar(50)
+  itemName    String    @map("item_name") @db.VarChar(100)
+  itemValue   String    @map("item_value") @db.VarChar(255)
+  sortOrder   Int       @default(0) @map("sort_order")
+  isDefault   Boolean   @default(false) @map("is_default")
+  isActive    Boolean   @default(true) @map("is_active")
+  description String?   @db.VarChar(255)
+  color       String?   @db.VarChar(20)
+  icon        String?   @db.VarChar(100)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  @@unique([typeCode, itemCode])
+  @@index([typeCode])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("dictionaries")
+}
+
+model AuditLog {
+  id            String      @id @default(uuid())
+  action        AuditAction
+  module        String      @db.VarChar(50)
+  resource      String      @db.VarChar(100)
+  resourceId    String?     @map("resource_id") @db.VarChar(100)
+  description   String?     @db.VarChar(500)
+  oldValue      String?     @map("old_value")
+  newValue      String?     @map("new_value")
+  diff          String?
+  userId        String?     @map("user_id")
+  username      String?     @db.VarChar(100)
+  realName      String?     @map("real_name") @db.VarChar(100)
+  ip            String      @db.VarChar(50)
+  userAgent     String?     @map("user_agent")
+  requestUrl    String      @map("request_url") @db.VarChar(500)
+  requestMethod String      @map("request_method") @db.VarChar(10)
+  requestParams String?     @map("request_params")
+  executionTime Int         @map("execution_time")
+  status        String      @db.VarChar(20)
+  errorMessage  String?     @map("error_message")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  user          User?       @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([module])
+  @@index([resource])
+  @@index([resourceId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid())
+  token      String    @unique @db.VarChar(500)
+  expiresAt  DateTime  @map("expires_at")
+  userId     String    @map("user_id")
+  deviceId   String?   @map("device_id") @db.VarChar(100)
+  deviceName String?   @map("device_name") @db.VarChar(100)
+  ip         String?   @db.VarChar(50)
+  userAgent  String?   @map("user_agent")
+  isRevoked  Boolean   @default(false) @map("is_revoked")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@index([deviceId])
+  @@index([isRevoked])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model UploadSession {
+  id             String       @id @default(uuid())
+  fileName       String       @map("file_name") @db.VarChar(255)
+  fileSize       BigInt       @map("file_size")
+  fileMd5        String       @map("file_md5") @db.VarChar(32)
+  mimeType       String       @map("mime_type") @db.VarChar(100)
+  extension      String       @db.VarChar(20)
+  chunkSize      Int          @default(5242880) @map("chunk_size")
+  chunkCount     Int          @map("chunk_count")
+  uploadedChunks Int          @default(0) @map("uploaded_chunks")
+  chunks         Json?
+  storageType    StorageType  @default(RUSTFS) @map("storage_type")
+  bucket         String       @db.VarChar(100)
+  fileKey        String?      @map("file_key") @db.VarChar(500)
+  status         UploadStatus @default(PENDING) @map("status")
+  folderId       String?      @map("folder_id")
+  uploadedBy     String       @map("uploaded_by")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  expiresAt      DateTime     @map("expires_at")
+  folder         Folder?      @relation(fields: [folderId], references: [id])
+
+  @@index([fileMd5])
+  @@index([status])
+  @@index([uploadedBy])
+  @@index([folderId])
+  @@index([expiresAt])
+  @@map("upload_sessions")
+}
+
+model FileFormatConfig {
+  id          String        @id @default(uuid())
+  extension   String        @unique @db.VarChar(20)
+  displayName String        @map("display_name") @db.VarChar(100)
+  mimeTypes   Json          @map("mime_types")
+  minSize     BigInt        @default(0) @map("min_size")
+  maxSize     BigInt        @map("max_size")
+  category    FileCategory?
+  isEnabled   Boolean       @default(true) @map("is_enabled")
+  sortOrder   Int           @default(0) @map("sort_order")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@index([isEnabled])
+  @@map("file_format_configs")
+}
+
+model RecycleBin {
+  id           String    @id @default(uuid())
+  originalId   String    @map("original_id")
+  originalType String    @map("original_type") @db.VarChar(20)
+  name         String    @db.VarChar(255)
+  path         String    @db.VarChar(500)
+  size         BigInt?
+  deletedBy    String    @map("deleted_by")
+  deletedAt    DateTime  @default(now()) @map("deleted_at")
+  purgeAt      DateTime  @map("purge_at")
+  restoredAt   DateTime? @map("restored_at")
+  restoredBy   String?   @map("restored_by")
+
+  @@index([originalType])
+  @@index([deletedBy])
+  @@index([deletedAt])
+  @@index([purgeAt])
+  @@map("recycle_bin")
+}
+
+model AiModel {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  displayName String    @map("display_name")
+  provider    String
+  modelId     String    @map("model_id")
+  apiEndpoint String?   @map("api_endpoint")
+  description String?
+  isEnabled   Boolean   @default(true) @map("is_enabled")
+  isDefault   Boolean   @default(false) @map("is_default")
+  isFree      Boolean   @default(false) @map("is_free")
+  sortOrder   Int       @default(0) @map("sort_order")
+  config      Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  @@index([isDefault])
+  @@index([isEnabled])
+  @@index([provider])
+  @@index([sortOrder])
+  @@map("ai_models")
+}
+
+model AiUsageLog {
+  id               String   @id @default(uuid())
+  modelId          String   @map("model_id")
+  userId           String   @map("user_id")
+  actionType       String   @map("action_type")
+  promptTokens     Int      @default(0) @map("prompt_tokens")
+  completionTokens Int      @default(0) @map("completion_tokens")
+  totalTokens      Int      @default(0) @map("total_tokens")
+  cost             Decimal  @default(0) @db.Decimal(10, 6)
+  responseTime     Int      @default(0) @map("response_time")
+  success          Boolean  @default(true)
+  errorMessage     String?  @map("error_message")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([actionType])
+  @@index([modelId, createdAt])
+  @@index([success])
+  @@index([userId, createdAt])
+  @@map("ai_usage_logs")
+}
+
+model CaptchaBackground {
+  id          String    @id @default(uuid())
+  fileName    String    @map("file_name") @db.VarChar(255)
+  filePath    String    @map("file_path") @db.VarChar(500)
+  fileSize    Int       @map("file_size")
+  mimeType    String    @map("mime_type") @db.VarChar(100)
+  width       Int       @default(320)
+  height      Int       @default(160)
+  storageType String    @default("RUSTFS") @map("storage_type") @db.VarChar(20)
+  folderId    String?   @map("folder_id")
+  isEnabled   Boolean   @default(true) @map("is_enabled")
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdBy   String?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  creator     User?     @relation(fields: [createdBy], references: [id])
+
+  @@index([createdBy])
+  @@index([deletedAt])
+  @@index([isEnabled])
+  @@index([sortOrder])
+  @@map("captcha_backgrounds")
+}
+
+model ConsumablePrice {
+  id                 String             @id @default(uuid()) @db.Uuid
+  consumableId       String             @map("consumable_id") @db.Uuid
+  supplierId         String             @map("supplier_id") @db.Uuid
+  unitPrice          Decimal            @map("unit_price") @db.Decimal(10, 4)
+  effectDate         DateTime           @map("effect_date")
+  isCurrent          Boolean            @default(true) @map("is_current")
+  batchNote          String?            @map("batch_note") @db.VarChar(200)
+  createdAt          DateTime           @default(now()) @map("created_at")
+  createdBy          String?            @map("created_by") @db.Uuid
+  consumable         Consumable         @relation(fields: [consumableId], references: [id])
+  consumableSupplier ConsumableSupplier @relation(fields: [supplierId], references: [id])
+
+  @@index([consumableId])
+  @@index([isCurrent])
+  @@index([supplierId])
+  @@map("consumable_prices")
+}
+
+model ConsumableSupplier {
+  id               String            @id @default(uuid()) @db.Uuid
+  name             String            @db.VarChar(200)
+  code             String            @unique @db.VarChar(100)
+  sortOrder        Int               @default(0) @map("sort_order")
+  contact          String?           @db.VarChar(100)
+  phone            String?           @db.VarChar(50)
+  status           SupplierStatus    @default(ACTIVE)
+  remark           String?
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  deletedAt        DateTime?         @map("deleted_at")
+  createdBy        String?           @map("created_by") @db.Uuid
+  updatedBy        String?           @map("updated_by") @db.Uuid
+  consumablePrices ConsumablePrice[]
+  paymentRecords   PaymentRecord[]
+
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([status])
+  @@index([sortOrder])
+  @@map("consumable_suppliers")
+}
+
+model Consumable {
+  id                         String                      @id @default(uuid()) @db.Uuid
+  name                       String                      @db.VarChar(200)
+  code                       String                      @unique @db.VarChar(100)
+  sortOrder                  Int                         @default(0) @map("sort_order")
+  category                   ConsumableCategory
+  specDesc                   String?                     @map("spec_desc")
+  image                      String?                     @db.Uuid
+  status                     ConsumableStatus            @default(ENABLED)
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+  updatedAt                  DateTime                    @updatedAt @map("updated_at")
+  deletedAt                  DateTime?                   @map("deleted_at")
+  createdBy                  String?                     @map("created_by") @db.Uuid
+  updatedBy                  String?                     @map("updated_by") @db.Uuid
+  remark                     String?
+  consumablePrices           ConsumablePrice[]
+  finishedProductConsumables FinishedProductConsumable[]
+
+  @@index([category])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([status])
+  @@index([sortOrder])
+  @@map("consumables")
+}
+
+model ContentVersion {
+  id             String    @id @default(uuid())
+  contentType    String    @map("content_type") @db.VarChar(50)
+  contentId      String    @map("content_id") @db.VarChar(100)
+  versionNumber  Int       @map("version_number")
+  content        Json
+  htmlContent    String?   @map("html_content")
+  versionType    String    @map("version_type") @db.VarChar(20)
+  versionName    String?   @map("version_name") @db.VarChar(100)
+  characterCount Int?      @map("character_count")
+  wordCount      Int?      @map("word_count")
+  createdBy      String    @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  @@unique([contentType, contentId, versionNumber])
+  @@index([contentType, contentId])
+  @@index([createdAt])
+  @@index([createdBy])
+  @@index([versionType])
+  @@map("content_versions")
+}
+
+model EmailLog {
+  id           String    @id @default(uuid())
+  to           String    @db.VarChar(255)
+  subject      String    @db.VarChar(500)
+  template     String    @db.VarChar(100)
+  templateData Json?     @map("template_data")
+  status       String    @default("PENDING") @db.VarChar(20)
+  errorMessage String?   @map("error_message")
+  retryCount   Int       @default(0) @map("retry_count")
+  sentAt       DateTime? @map("sent_at")
+  userId       String?   @map("user_id")
+  category     String    @default("system") @db.VarChar(50)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  @@index([category])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([status])
+  @@index([template])
+  @@index([to])
+  @@index([userId])
+  @@map("email_logs")
+}
+
+model ExportTask {
+  id            String   @id @default(uuid())
+  taskNo        String   @unique @map("task_no") @db.VarChar(50)
+  module        String   @db.VarChar(50)
+  type          String   @db.VarChar(20)
+  format        String   @db.VarChar(20)
+  status        String   @default("pending") @db.VarChar(20)
+  params        Json?
+  fileName      String?  @map("file_name") @db.VarChar(255)
+  filePath      String?  @map("file_path") @db.VarChar(500)
+  fileSize      BigInt?  @map("file_size")
+  totalRows     Int?     @map("total_rows")
+  processedRows Int?     @default(0) @map("processed_rows")
+  errorMessage  String?  @map("error_message")
+  userId        String   @map("user_id")
+  expiresAt     DateTime @map("expires_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([createdAt])
+  @@index([expiresAt])
+  @@index([module])
+  @@index([status])
+  @@index([taskNo])
+  @@index([type])
+  @@index([userId])
+  @@map("export_tasks")
+}
+
+model ExpressCompany {
+  id                  String               @id @default(uuid()) @db.Uuid
+  sortOrder           Int                  @default(0) @map("sort_order")
+  name                String               @db.VarChar(100)
+  code                String               @unique @db.VarChar(50)
+  contactName         String?              @map("contact_name") @db.VarChar(100)
+  contactPhone        String?              @map("contact_phone") @db.VarChar(50)
+  status              ExpressCompanyStatus @default(ACTIVE)
+  remark              String?
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+  createdBy           String?              @map("created_by") @db.Uuid
+  updatedBy           String?              @map("updated_by") @db.Uuid
+  deletedAt           DateTime?            @map("deleted_at")
+  expressPrices       ExpressPrice[]
+  expressSurcharges   ExpressSurcharge[]
+  expressWeightRanges ExpressWeightRange[]
+  expressZones        ExpressZone[]
+  profitShippingCosts ProfitShippingCost[]
+  skus                Sku[]
+
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([status])
+  @@index([sortOrder])
+  @@map("express_companies")
+}
+
+model ExpressPrice {
+  id                 String             @id @default(uuid()) @db.Uuid
+  companyId          String             @map("company_id") @db.Uuid
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+  price              Decimal            @db.Decimal(10, 2)
+  weightRangeId      String             @map("weight_range_id") @db.Uuid
+  zoneId             String             @map("zone_id") @db.Uuid
+  expressCompany     ExpressCompany     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  expressWeightRange ExpressWeightRange @relation(fields: [weightRangeId], references: [id], onDelete: Cascade)
+  expressZone        ExpressZone        @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, zoneId, weightRangeId])
+  @@index([companyId])
+  @@index([weightRangeId])
+  @@index([zoneId])
+  @@map("express_prices")
+}
+
+model ExpressSurcharge {
+  id             String         @id @default(uuid()) @db.Uuid
+  companyId      String         @map("company_id") @db.Uuid
+  name           String         @db.VarChar(100)
+  provinces      String[]
+  weightFrom     Decimal?       @map("weight_from") @db.Decimal(10, 2)
+  weightTo       Decimal?       @map("weight_to") @db.Decimal(10, 2)
+  amount         Decimal        @db.Decimal(10, 2)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  expressCompany ExpressCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("express_surcharges")
+}
+
+model ExpressWeightRange {
+  id             String         @id @default(uuid()) @db.Uuid
+  companyId      String         @map("company_id") @db.Uuid
+  label          String         @db.VarChar(50)
+  minWeight      Decimal        @map("min_weight") @db.Decimal(10, 2)
+  maxWeight      Decimal        @map("max_weight") @db.Decimal(10, 2)
+  sortOrder      Int            @map("sort_order")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  expressPrices  ExpressPrice[]
+  expressCompany ExpressCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, label])
+  @@index([companyId])
+  @@map("express_weight_ranges")
+}
+
+model ExpressZone {
+  id             String         @id @default(uuid()) @db.Uuid
+  companyId      String         @map("company_id") @db.Uuid
+  name           String         @db.VarChar(50)
+  sortOrder      Int            @map("sort_order")
+  provinces      String[]
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  expressPrices  ExpressPrice[]
+  expressCompany ExpressCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("express_zones")
+}
+
+model FinishedProductConsumable {
+  id                String          @id @default(uuid()) @db.Uuid
+  finishedProductId String          @map("finished_product_id") @db.Uuid
+  consumableId      String          @map("consumable_id") @db.Uuid
+  quantity          Int
+  consumable        Consumable      @relation(fields: [consumableId], references: [id])
+  finishedProduct   FinishedProduct @relation(fields: [finishedProductId], references: [id], onDelete: Cascade)
+
+  @@index([consumableId])
+  @@index([finishedProductId])
+  @@map("finished_product_consumables")
+}
+
+model FinishedProductLabor {
+  id                String          @id @default(uuid()) @db.Uuid
+  finishedProductId String          @map("finished_product_id") @db.Uuid
+  laborTypeId       String          @map("labor_type_id") @db.Uuid
+  finishedProduct   FinishedProduct @relation(fields: [finishedProductId], references: [id], onDelete: Cascade)
+  laborType         LaborType       @relation(fields: [laborTypeId], references: [id])
+
+  @@index([finishedProductId])
+  @@index([laborTypeId])
+  @@map("finished_product_labor")
+}
+
+model FinishedProduct {
+  id                         String                      @id @default(uuid()) @db.Uuid
+  code                       String                      @unique @db.VarChar(100)
+  name                       String                      @db.VarChar(200)
+  sortOrder                  Int                         @default(0) @map("sort_order")
+  productId                  String                      @map("product_id") @db.Uuid
+  supplierProductId          String                      @map("supplier_product_id") @db.Uuid
+  cutLength                  Decimal?                    @map("cut_length") @db.Decimal(10, 2)
+  cutWidth                   Decimal?                    @map("cut_width") @db.Decimal(10, 2)
+  cutHeight                  Decimal?                    @map("cut_height") @db.Decimal(10, 2)
+  packageType                PackageType                 @default(BAG) @map("package_type")
+  packageQuantity            Int                         @map("package_quantity")
+  packageUnit                String                      @map("package_unit") @db.VarChar(20)
+  weight                     Decimal                     @db.Decimal(10, 4)
+  materialCost               Decimal?                    @map("material_cost") @db.Decimal(10, 4)
+  consumableCost             Decimal?                    @map("consumable_cost") @db.Decimal(10, 4)
+  laborCost                  Decimal?                    @map("labor_cost") @db.Decimal(10, 4)
+  totalCost                  Decimal?                    @map("total_cost") @db.Decimal(10, 4)
+  status                     FinishedProductStatus       @default(ENABLED)
+  remark                     String?
+  createdAt                  DateTime                    @default(now()) @map("created_at")
+  updatedAt                  DateTime                    @updatedAt @map("updated_at")
+  deletedAt                  DateTime?                   @map("deleted_at")
+  createdBy                  String?                     @map("created_by") @db.Uuid
+  updatedBy                  String?                     @map("updated_by") @db.Uuid
+  unitWeight                 Decimal?                    @map("unit_weight") @db.Decimal(10, 4)
+  finishedProductConsumables FinishedProductConsumable[]
+  finishedProductLabor       FinishedProductLabor[]
+  product                    Product                     @relation(fields: [productId], references: [id])
+  supplierProduct            SupplierProduct             @relation(fields: [supplierProductId], references: [id])
+  skuFinishedProducts        SkuFinishedProduct[]
+
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([productId])
+  @@index([status])
+  @@index([sortOrder])
+  @@index([supplierProductId])
+  @@map("finished_products")
+}
+
+model FolderShare {
+  id               String            @id @default(uuid()) @map("id")
+  folderId         String            @map("folder_id")
+  sharedWithUserId String?           @map("shared_with_user_id")
+  sharedWithRoleId String?           @map("shared_with_role_id")
+  permissions      SharePermission[] @default([VIEW, DOWNLOAD])
+  sharedBy         String            @map("shared_by")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  folder           Folder            @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  sharer           User              @relation("folder_shares_shared_byTousers", fields: [sharedBy], references: [id])
+  sharedWithRole   Role?             @relation(fields: [sharedWithRoleId], references: [id])
+  sharedWithUser   User?             @relation("folder_shares_shared_with_user_idTousers", fields: [sharedWithUserId], references: [id])
+
+  @@unique([folderId, sharedWithRoleId])
+  @@unique([folderId, sharedWithUserId])
+  @@index([folderId])
+  @@index([sharedBy])
+  @@index([sharedWithRoleId])
+  @@index([sharedWithUserId])
+  @@map("folder_shares")
+}
+
+model LaborRate {
+  id          String    @id @default(uuid()) @db.Uuid
+  laborTypeId String    @map("labor_type_id") @db.Uuid
+  unitPrice   Decimal   @map("unit_price") @db.Decimal(10, 4)
+  unit        String    @db.VarChar(20)
+  effectDate  DateTime  @map("effect_date")
+  isCurrent   Boolean   @default(true) @map("is_current")
+  remark      String?   @db.VarChar(200)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by") @db.Uuid
+  laborType   LaborType @relation(fields: [laborTypeId], references: [id])
+
+  @@index([isCurrent])
+  @@index([laborTypeId])
+  @@map("labor_rates")
+}
+
+model LaborType {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  name                 String                 @db.VarChar(100)
+  code                 String                 @unique @db.VarChar(50)
+  sortOrder            Int                    @default(0) @map("sort_order")
+  billingType          LaborBillingType       @map("billing_type")
+  status               ConsumableStatus       @default(ENABLED)
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+  deletedAt            DateTime?              @map("deleted_at")
+  createdBy            String?                @map("created_by") @db.Uuid
+  updatedBy            String?                @map("updated_by") @db.Uuid
+  finishedProductLabor FinishedProductLabor[]
+  laborRates           LaborRate[]
+
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([status])
+  @@index([sortOrder])
+  @@map("labor_types")
+}
+
+model NotificationBroadcast {
+  id              String               @id @default(uuid())
+  broadcastNo     String               @unique @map("broadcast_no") @db.VarChar(50)
+  type            String               @db.VarChar(50)
+  priority        NotificationPriority @default(NORMAL)
+  title           String               @db.VarChar(200)
+  content         String?
+  actionUrl       String?              @map("action_url") @db.VarChar(500)
+  targetType      String               @map("target_type") @db.VarChar(20)
+  targetConfig    Json?                @map("target_config")
+  targetCount     Int                  @default(0) @map("target_count")
+  sentCount       Int                  @default(0) @map("sent_count")
+  readCount       Int                  @default(0) @map("read_count")
+  createdBy       String               @map("created_by")
+  status          BroadcastStatus      @default(PENDING)
+  sentAt          DateTime?            @map("sent_at")
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+  deletedAt       DateTime?            @map("deleted_at")
+  confirmedByUser User                 @relation(fields: [createdBy], references: [id])
+  notifications   Notification[]
+
+  @@index([broadcastNo])
+  @@index([createdAt])
+  @@index([createdBy])
+  @@index([deletedAt])
+  @@index([status])
+  @@index([type])
+  @@map("notification_broadcasts")
+}
+
+model NotificationSetting {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  type      String   @db.VarChar(50)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  users     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type])
+  @@index([type])
+  @@index([userId, enabled])
+  @@index([userId])
+  @@map("notification_settings")
+}
+
+model Notification {
+  id                    String                 @id @default(uuid())
+  userId                String                 @map("user_id")
+  broadcastId           String?                @map("broadcast_id")
+  type                  String?                @db.VarChar(50)
+  priority              NotificationPriority?  @default(NORMAL)
+  title                 String?                @db.VarChar(200)
+  content               String?
+  relatedType           String?                @map("related_type") @db.VarChar(50)
+  relatedId             String?                @map("related_id")
+  actionUrl             String?                @map("action_url") @db.VarChar(500)
+  isRead                Boolean                @default(false) @map("is_read")
+  readAt                DateTime?              @map("read_at")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  deletedAt             DateTime?              @map("deleted_at")
+  notificationBroadcast NotificationBroadcast? @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  users                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([broadcastId])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([isRead])
+  @@index([type])
+  @@index([userId, createdAt, deletedAt])
+  @@index([userId])
+  @@index([userId, isRead, deletedAt])
+  @@map("notifications")
+}
+
+model Platform {
+  id        String         @id @default(uuid()) @db.Uuid
+  sortOrder Int            @default(0) @map("sort_order")
+  name      String         @db.VarChar(50)
+  code      String         @unique @db.VarChar(50)
+  type      PlatformType?  @default(DOMESTIC)
+  logo      String?        @db.VarChar(500)
+  website   String?        @db.VarChar(255)
+  status    PlatformStatus @default(ACTIVE)
+  remark    String?
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+  createdBy String?        @map("created_by") @db.Uuid
+  updatedBy String?        @map("updated_by") @db.Uuid
+  deletedAt DateTime?      @map("deleted_at")
+  shops     Shop[]
+
+  @@index([code])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([status])
+  @@index([sortOrder])
+  @@map("platforms")
+}
+
+model PricingPlan {
+  id                   String      @id @default(uuid()) @db.Uuid
+  linkId               String      @map("link_id") @db.Uuid
+  name                 String      @db.VarChar(200)
+  profitRates          Decimal[]   @map("profit_rates")
+  commissionRate       Decimal     @map("commission_rate") @db.Decimal(5, 4)
+  taxRate              Decimal     @default(0) @map("tax_rate") @db.Decimal(5, 4)
+  selectedPrices       Json?       @map("selected_prices")
+  needsUpdate          Boolean     @default(false) @map("needs_update")
+  remark               String?
+  createdAt            DateTime    @default(now()) @map("created_at")
+  updatedAt            DateTime    @updatedAt @map("updated_at")
+  deletedAt            DateTime?   @map("deleted_at")
+  createdBy            String?     @map("created_by") @db.Uuid
+  updatedBy            String?     @map("updated_by") @db.Uuid
+  talentCommissionRate Decimal?    @map("talent_commission_rate") @db.Decimal(5, 4)
+  productLink          ProductLink @relation(fields: [linkId], references: [id])
+
+  @@index([createdAt])
+  @@index([createdBy])
+  @@index([linkId])
+  @@map("pricing_plans")
+}
+
+model ProductLink {
+  id             String            @id @default(uuid()) @db.Uuid
+  name           String            @db.VarChar(200)
+  sortOrder      Int               @default(0) @map("sort_order")
+  shopId         String            @map("shop_id") @db.Uuid
+  platformUrl    String?           @map("platform_url")
+  platformItemId String?           @map("platform_item_id") @db.VarChar(100)
+  status         ProductLinkStatus @default(DRAFT)
+  remark         String?
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+  deletedAt      DateTime?         @map("deleted_at")
+  createdBy      String?           @map("created_by") @db.Uuid
+  updatedBy      String?           @map("updated_by") @db.Uuid
+  pricingPlans   PricingPlan[]
+  shop           Shop              @relation(fields: [shopId], references: [id])
+  skus           Sku[]
+
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([shopId])
+  @@index([status])
+  @@index([sortOrder])
+  @@map("product_links")
+}
+
+model Product {
+  id               String            @id @default(uuid()) @db.Uuid
+  name             String            @db.VarChar(200)
+  code             String            @unique @db.VarChar(100)
+  sortOrder        Int               @default(0) @map("sort_order")
+  brand            String?           @db.VarChar(100)
+  status           ProductStatus     @default(DEVELOPING)
+  mainImage        String?           @map("main_image") @db.Uuid
+  remark           String?
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  createdBy        String?           @map("created_by") @db.Uuid
+  updatedBy        String?           @map("updated_by") @db.Uuid
+  deletedAt        DateTime?         @map("deleted_at")
+  pricingMode      PricingMode       @default(UNIT) @map("pricing_mode")
+  finishedProducts FinishedProduct[]
+  supplierProducts SupplierProduct[]
+
+  @@index([code])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([status])
+  @@index([sortOrder])
+  @@map("products")
+}
+
+model ProfitAllocationCategory {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  reportId              String                 @map("report_id") @db.Uuid
+  name                  String                 @db.VarChar(100)
+  sortOrder             Int                    @default(0) @map("sort_order")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  profitReport          ProfitReport           @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  profitAllocationItems ProfitAllocationItem[]
+
+  @@unique([reportId, name])
+  @@index([reportId])
+  @@map("profit_allocation_categories")
+}
+
+model ProfitAllocationItem {
+  id                       String                   @id @default(uuid()) @db.Uuid
+  entryId                  String                   @map("entry_id") @db.Uuid
+  categoryId               String                   @map("category_id") @db.Uuid
+  amount                   Decimal                  @default(0) @db.Decimal(14, 2)
+  remark                   String?
+  createdAt                DateTime                 @default(now()) @map("created_at")
+  updatedAt                DateTime                 @updatedAt @map("updated_at")
+  profitAllocationCategory ProfitAllocationCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  profitReportEntry        ProfitReportEntry        @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@unique([entryId, categoryId])
+  @@index([categoryId])
+  @@index([entryId])
+  @@map("profit_allocation_items")
+}
+
+model ProfitCompanyExpense {
+  id            String       @id @default(uuid()) @db.Uuid
+  reportId      String       @map("report_id") @db.Uuid
+  name          String       @db.VarChar(200)
+  amount        Decimal      @default(0) @db.Decimal(14, 2)
+  isAllocatable Boolean      @default(false) @map("is_allocatable")
+  remark        String?
+  sortOrder     Int          @default(0) @map("sort_order")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  profitReport  ProfitReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+  @@map("profit_company_expenses")
+}
+
+model ProfitNonExpense {
+  id           String       @id @default(uuid()) @db.Uuid
+  reportId     String       @map("report_id") @db.Uuid
+  name         String       @db.VarChar(200)
+  amount       Decimal      @default(0) @db.Decimal(14, 2)
+  remark       String?
+  sortOrder    Int          @default(0) @map("sort_order")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  profitReport ProfitReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+  @@map("profit_non_expenses")
+}
+
+model ProfitReportEntry {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  reportId              String                 @map("report_id") @db.Uuid
+  shopId                String                 @map("shop_id") @db.Uuid
+  salesAmount           Decimal                @default(0) @map("sales_amount") @db.Decimal(14, 2)
+  rawMaterialCost       Decimal                @default(0) @map("raw_material_cost") @db.Decimal(14, 2)
+  packagingCost         Decimal                @default(0) @map("packaging_cost") @db.Decimal(14, 2)
+  laborCost             Decimal                @default(0) @map("labor_cost") @db.Decimal(14, 2)
+  grossProfit           Decimal?               @map("gross_profit") @db.Decimal(14, 2)
+  netProfit             Decimal?               @map("net_profit") @db.Decimal(14, 2)
+  remark                String?
+  sortOrder             Int                    @default(0) @map("sort_order")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  profitAllocationItems ProfitAllocationItem[]
+  profitReport          ProfitReport           @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  shop                  Shop                   @relation(fields: [shopId], references: [id])
+  profitShippingCosts   ProfitShippingCost[]
+  profitStoreExpenses   ProfitStoreExpense[]
+
+  @@unique([reportId, shopId])
+  @@index([reportId])
+  @@index([shopId])
+  @@map("profit_report_entries")
+}
+
+model ProfitReport {
+  id                         String                     @id @default(uuid()) @db.Uuid
+  year                       Int
+  month                      Int
+  status                     ProfitReportStatus         @default(DRAFT)
+  remark                     String?
+  confirmedAt                DateTime?                  @map("confirmed_at")
+  confirmedBy                String?                    @map("confirmed_by")
+  createdAt                  DateTime                   @default(now()) @map("created_at")
+  updatedAt                  DateTime                   @updatedAt @map("updated_at")
+  deletedAt                  DateTime?                  @map("deleted_at")
+  createdBy                  String?                    @map("created_by") @db.Uuid
+  updatedBy                  String?                    @map("updated_by") @db.Uuid
+  profitAllocationCategories ProfitAllocationCategory[]
+  profitCompanyExpenses      ProfitCompanyExpense[]
+  profitNonExpenses          ProfitNonExpense[]
+  profitReportEntries        ProfitReportEntry[]
+  users                      User?                      @relation(fields: [confirmedBy], references: [id])
+
+  @@unique([year, month, deletedAt])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([status])
+  @@index([year])
+  @@map("profit_reports")
+}
+
+model ProfitShippingCost {
+  id                String            @id @default(uuid()) @db.Uuid
+  entryId           String            @map("entry_id") @db.Uuid
+  expressCompanyId  String            @map("express_company_id") @db.Uuid
+  amount            Decimal           @default(0) @db.Decimal(14, 2)
+  remark            String?
+  sortOrder         Int               @default(0) @map("sort_order")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  profitReportEntry ProfitReportEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  expressCompany    ExpressCompany    @relation(fields: [expressCompanyId], references: [id])
+
+  @@index([entryId])
+  @@index([expressCompanyId])
+  @@map("profit_shipping_costs")
+}
+
+model ProfitStoreExpense {
+  id                String            @id @default(uuid()) @db.Uuid
+  entryId           String            @map("entry_id") @db.Uuid
+  name              String            @db.VarChar(200)
+  amount            Decimal           @default(0) @db.Decimal(14, 2)
+  remark            String?
+  sortOrder         Int               @default(0) @map("sort_order")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  profitReportEntry ProfitReportEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+  @@map("profit_store_expenses")
+}
+
+model RealFolder {
+  id          String   @id @default(uuid())
+  pathName    String   @unique @map("path_name") @db.VarChar(255)
+  displayName String   @map("display_name") @db.VarChar(100)
+  description String?  @db.VarChar(500)
+  sortOrder   Int      @default(0) @map("sort_order")
+  isSystem    Boolean  @default(false) @map("is_system")
+  fileCount   Int      @default(0) @map("file_count")
+  totalSize   BigInt   @default(0) @map("total_size")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  folders     Folder[]
+
+  @@index([isSystem])
+  @@index([pathName])
+  @@map("real_folders")
+}
+
+model SecurityLog {
+  id             String    @id @default(uuid())
+  type           String    @db.VarChar(50)
+  severity       String    @default("INFO") @db.VarChar(20)
+  status         String    @default("NEW") @db.VarChar(20)
+  userId         String?   @map("user_id")
+  fileId         String?   @map("file_id")
+  fileName       String?   @map("file_name") @db.VarChar(255)
+  details        String?
+  metadata       Json?
+  ipAddress      String?   @map("ip_address") @db.VarChar(50)
+  location       String?   @db.VarChar(100)
+  actionTaken    String?   @map("action_taken")
+  notes          String?
+  acknowledgedBy String?   @map("acknowledged_by") @db.VarChar(100)
+  acknowledgedAt DateTime? @map("acknowledged_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  user           User?     @relation(fields: [userId], references: [id])
+
+  @@index([createdAt])
+  @@index([fileId])
+  @@index([ipAddress])
+  @@index([severity])
+  @@index([status])
+  @@index([type])
+  @@index([userId])
+  @@map("security_logs")
+}
+
+model Shop {
+  id                  String              @id @default(uuid()) @db.Uuid
+  sortOrder           Int                 @default(0) @map("sort_order")
+  name                String              @db.VarChar(100)
+  platformId          String              @map("platform_id") @db.Uuid
+  status              ShopStatus          @default(ACTIVE)
+  managerId           String              @map("manager_id")
+  remark              String?
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+  createdBy           String?             @map("created_by") @db.Uuid
+  updatedBy           String?             @map("updated_by") @db.Uuid
+  deletedAt           DateTime?           @map("deleted_at")
+  productLinks        ProductLink[]
+  profitReportEntries ProfitReportEntry[]
+  aliases             ShopAlias[]
+  creator             User                @relation(fields: [managerId], references: [id])
+  platform            Platform            @relation(fields: [platformId], references: [id])
+
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([managerId])
+  @@index([platformId])
+  @@index([status])
+  @@index([sortOrder])
+  @@map("shops")
+}
+
+model ShopAlias {
+  id        String   @id @default(uuid()) @db.Uuid
+  shopId    String   @map("shop_id") @db.Uuid
+  alias     String   @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+  shop      Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([alias])
+  @@index([shopId])
+  @@map("shop_aliases")
+}
+
+model SkuFinishedProduct {
+  id                String          @id @default(uuid()) @db.Uuid
+  skuId             String          @map("sku_id") @db.Uuid
+  finishedProductId String          @map("finished_product_id") @db.Uuid
+  quantity          Int             @default(1)
+  finishedProduct   FinishedProduct @relation(fields: [finishedProductId], references: [id])
+  sku               Sku             @relation(fields: [skuId], references: [id], onDelete: Cascade)
+
+  @@index([finishedProductId])
+  @@index([skuId])
+  @@map("sku_finished_products")
+}
+
+model Sku {
+  id                      String               @id @default(uuid()) @db.Uuid
+  name                    String               @db.VarChar(200)
+  sortOrder               Int                  @default(0) @map("sort_order")
+  weight                  Float
+  status                  SkuStatus            @default(ENABLED)
+  remark                  String?
+  createdAt               DateTime             @default(now()) @map("created_at")
+  updatedAt               DateTime             @updatedAt @map("updated_at")
+  createdBy               String?              @map("created_by") @db.Uuid
+  updatedBy               String?              @map("updated_by") @db.Uuid
+  defaultExpressCompanyId String?              @map("default_express_company_id") @db.Uuid
+  deletedAt               DateTime?            @map("deleted_at")
+  comboPackageFee         Decimal              @default(0) @map("combo_package_fee") @db.Decimal(10, 2)
+  expressCost             Decimal?             @map("express_cost") @db.Decimal(10, 4)
+  linkId                  String               @map("link_id") @db.Uuid
+  miscFee                 Decimal              @default(0) @map("misc_fee") @db.Decimal(10, 2)
+  productCost             Decimal?             @map("product_cost") @db.Decimal(10, 4)
+  totalCost               Decimal?             @map("total_cost") @db.Decimal(10, 4)
+  type                    SkuType              @default(SINGLE)
+  skuFinishedProducts     SkuFinishedProduct[]
+  expressCompany          ExpressCompany?      @relation(fields: [defaultExpressCompanyId], references: [id])
+  productLink             ProductLink          @relation(fields: [linkId], references: [id])
+
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([linkId])
+  @@index([sortOrder])
+  @@index([status])
+  @@map("skus")
+}
+
+model SupplierProduct {
+  id               String            @id @default(uuid()) @db.Uuid
+  supplierId       String            @map("supplier_id") @db.Uuid
+  productId        String            @map("product_id") @db.Uuid
+  supplyPrice      Decimal           @map("supply_price") @db.Decimal(10, 4)
+  sortOrder        Int               @default(0) @map("sort_order")
+  status           SupplierStatus    @default(ACTIVE)
+  remark           String?
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  createdBy        String?           @map("created_by") @db.Uuid
+  updatedBy        String?           @map("updated_by") @db.Uuid
+  deletedAt        DateTime?         @map("deleted_at")
+  priceUnit        PriceUnit         @default(PER_PIECE) @map("price_unit")
+  styleName        String?           @map("style_name") @db.VarChar(100)
+  styleParams      Json?             @map("style_params")
+  priceUnitCustom  String?           @map("price_unit_custom") @db.VarChar(50)
+  finishedProducts FinishedProduct[]
+  product          Product           @relation(fields: [productId], references: [id])
+  supplier         Supplier          @relation(fields: [supplierId], references: [id])
+
+  @@unique([supplierId, productId, styleName])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([productId])
+  @@index([status])
+  @@index([sortOrder])
+  @@index([supplierId])
+  @@map("supplier_products")
+}
+
+model Supplier {
+  id               String            @id @default(uuid()) @db.Uuid
+  code             String            @unique @db.VarChar(100)
+  name             String            @db.VarChar(200)
+  sortOrder        Int               @default(0) @map("sort_order")
+  contact          String?           @db.VarChar(100)
+  phone            String?           @db.VarChar(50)
+  address          String?
+  status           SupplierStatus    @default(ACTIVE)
+  remark           String?
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  createdBy        String?           @map("created_by") @db.Uuid
+  updatedBy        String?           @map("updated_by") @db.Uuid
+  deletedAt        DateTime?         @map("deleted_at")
+  supplierProducts SupplierProduct[]
+  paymentRecords    PaymentRecord[]
+
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([status])
+  @@index([sortOrder])
+  @@map("suppliers")
+}
+
+model SystemConfig {
+  id          String   @id @default(uuid())
+  key         String   @unique @db.VarChar(100)
+  value       String
+  group       String   @db.VarChar(50)
+  description String?  @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([group])
+  @@index([key])
+  @@map("system_configs")
+}
+
+model TalentContactLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  talentId  String   @map("talent_id") @db.Uuid
+  content   String
+  creatorId String   @map("creator_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  creator   User     @relation(fields: [creatorId], references: [id])
+  talent    Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([creatorId])
+  @@index([talentId])
+  @@map("talent_contact_logs")
+}
+
+model TalentFlagConfig {
+  id        String          @id @default(uuid()) @db.Uuid
+  userId    String          @map("user_id")
+  flagColor TalentFlagColor @map("flag_color")
+  meaning   String          @db.VarChar(100)
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+  user      User            @relation(fields: [userId], references: [id])
+
+  @@unique([userId, flagColor])
+  @@index([userId])
+  @@map("talent_flag_configs")
+}
+
+model TalentFlag {
+  id        String          @id @default(uuid()) @db.Uuid
+  talentId  String          @map("talent_id") @db.Uuid
+  userId    String          @map("user_id")
+  flagColor TalentFlagColor @map("flag_color")
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+  talent    Talent          @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  user      User            @relation(fields: [userId], references: [id])
+
+  @@unique([talentId, userId])
+  @@index([flagColor])
+  @@index([talentId])
+  @@index([userId])
+  @@map("talent_flags")
+}
+
+model TalentPlatform {
+  id           String    @id @default(uuid()) @db.Uuid
+  talentId     String    @map("talent_id") @db.Uuid
+  platform     String    @db.VarChar(50)
+  nickname     String?   @db.VarChar(100)
+  accountId    String?   @map("account_id") @db.VarChar(100)
+  homeUrl      String?   @map("home_url")
+  categories   String[]  @default([])
+  contentForms String[]  @default([]) @map("content_forms")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+  talent       Talent    @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  @@index([deletedAt])
+  @@index([platform])
+  @@index([talentId])
+  @@map("talent_platforms")
+}
+
+model TalentTransfer {
+  id         String   @id @default(uuid()) @db.Uuid
+  talentId   String   @map("talent_id") @db.Uuid
+  fromUserId String   @map("from_user_id")
+  toUserId   String   @map("to_user_id")
+  remark     String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  createdBy  String   @map("created_by")
+  creator    User     @relation("talent_transfers_created_byTousers", fields: [createdBy], references: [id])
+  fromUser   User     @relation("talent_transfers_from_user_idTousers", fields: [fromUserId], references: [id])
+  talent     Talent   @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  toUser     User     @relation("talent_transfers_to_user_idTousers", fields: [toUserId], references: [id])
+
+  @@index([createdAt])
+  @@index([fromUserId])
+  @@index([talentId])
+  @@index([toUserId])
+  @@map("talent_transfers")
+}
+
+model Talent {
+  id                String             @id @default(uuid()) @db.Uuid
+  name              String             @db.VarChar(100)
+  wechat            String?            @db.VarChar(100)
+  phone             String?            @db.VarChar(50)
+  status            TalentStatus       @default(PENDING)
+  level             TalentLevel        @default(LV1)
+  managerId         String             @map("manager_id")
+  remark            String?
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  deletedAt         DateTime?          @map("deleted_at")
+  createdBy         String?            @map("created_by") @db.Uuid
+  updatedBy         String?            @map("updated_by") @db.Uuid
+  talentContactLogs TalentContactLog[]
+  talentFlags       TalentFlag[]
+  talentPlatforms   TalentPlatform[]
+  talentTransfers   TalentTransfer[]
+  manager           User               @relation(fields: [managerId], references: [id])
+
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([level])
+  @@index([managerId])
+  @@index([status])
+  @@map("talents")
+}
+
+model UploadLog {
+  id            String   @id @default(uuid())
+  sessionId     String?  @map("session_id")
+  action        String   @db.VarChar(50)
+  fileName      String?  @map("file_name") @db.VarChar(255)
+  fileSize      BigInt?  @map("file_size")
+  fileExtension String?  @map("file_extension") @db.VarChar(20)
+  status        String   @db.VarChar(20)
+  errorMessage  String?  @map("error_message")
+  metadata      Json?
+  userId        String   @map("user_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  fileId        String?  @map("file_id")
+
+  @@index([action])
+  @@index([createdAt])
+  @@index([sessionId])
+  @@index([userId])
+  @@map("upload_logs")
+}
+
+model UploadSecurityConfig {
+  id                  Int      @id @default(1)
+  enableFormatLimit   Boolean  @default(true) @map("enable_format_limit")
+  enableSizeLimit     Boolean  @default(true) @map("enable_size_limit")
+  globalMaxSize       BigInt   @default(1073741824) @map("global_max_size")
+  globalMaxFiles      Int      @default(100) @map("global_max_files")
+  dangerousExtensions String[] @default(["exe", "bat", "cmd", "sh", "ps1", "vbs", "js"]) @map("dangerous_extensions")
+  enableVirusScan     Boolean  @default(true) @map("enable_virus_scan")
+  scanTimeoutSeconds  Int      @default(300) @map("scan_timeout_seconds")
+  autoQuarantine      Boolean  @default(true) @map("auto_quarantine")
+  enableSpaceCheck    Boolean  @default(true) @map("enable_space_check")
+  minFreeSpaceBytes   BigInt   @default(1073741824) @map("min_free_space_bytes")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  updatedBy           String?  @map("updated_by")
+  enableBlacklist     Boolean  @default(true) @map("enable_blacklist")
+
+  @@map("upload_security_config")
+}
+
+model Notebook {
+  id        String    @id @default(uuid())
+  title     String    @db.VarChar(200)
+  content   Json
+  userId    String    @map("user_id")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@map("notebooks")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+
+  @@map("user_status")
+}
+
+enum FileAccess {
+  PUBLIC
+  PRIVATE
+
+  @@map("file_access")
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  EXPORT
+  IMPORT
+  VIEW
+  SECURITY_UPLOAD_BLOCKED
+  SECURITY_VIRUS_DETECTED
+  SECURITY_FILE_QUARANTINED
+  SECURITY_DISK_SPACE_LOW
+  SECURITY_LIMIT_EXCEEDED
+  SECURITY_SECURITY_VIOLATION
+  SECURITY_FILE_ISOLATED
+  SECURITY_FILE_RELEASED
+
+  @@map("audit_action")
+}
+
+enum StorageType {
+  RUSTFS
+  LOCAL
+  S3
+
+  @@map("storage_type")
+}
+
+enum UploadStatus {
+  PENDING
+  UPLOADING
+  PAUSED
+  COMPLETED
+  FAILED
+  EXPIRED
+  CANCELLED
+
+  @@map("upload_status")
+}
+
+enum FileCategory {
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+  ARCHIVE
+  CODE
+  OTHER
+
+  @@map("file_category")
+}
+
+enum FileSource {
+  UPLOAD
+  EDITOR
+}
+
+enum BroadcastStatus {
+  PENDING
+  SENDING
+  SENT
+  CANCELLED
+
+  @@map("broadcast_status")
+}
+
+enum ConsumableCategory {
+  PACKAGING_BAG
+  EXPRESS_BAG
+  CARTON
+  TAPE
+  LABEL
+  OTHER
+
+  @@map("consumable_category")
+}
+
+enum ConsumableStatus {
+  ENABLED
+  DISABLED
+
+  @@map("consumable_status")
+}
+
+enum ExpressCompanyStatus {
+  ACTIVE
+  INACTIVE
+
+  @@map("express_company_status")
+}
+
+enum FinishedProductStatus {
+  ENABLED
+  DISABLED
+
+  @@map("finished_product_status")
+}
+
+enum FolderShareType {
+  NONE
+  SYSTEM
+  USER
+
+  @@map("folder_share_type")
+}
+
+enum LaborBillingType {
+  PER_PIECE
+  PER_WEIGHT
+  PER_PACKAGE
+
+  @@map("labor_billing_type")
+}
+
+enum NotificationPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+
+  @@map("notification_priority")
+}
+
+enum PackageType {
+  BAG
+  BOX
+  INDIVIDUAL
+
+  @@map("package_type")
+}
+
+enum PlatformStatus {
+  ACTIVE
+  INACTIVE
+
+  @@map("platform_status")
+}
+
+enum PlatformType {
+  DOMESTIC
+  CROSS_BORDER
+  SOCIAL
+
+  @@map("platform_type")
+}
+
+enum PriceUnit {
+  PER_CUBIC_METER
+  PER_KG
+  PER_PIECE
+  PER_LITER
+  PER_ML
+  PER_SQUARE_METER
+  PER_METER
+  PER_GRAM
+  PER_BOTTLE
+  PER_BOX
+  PER_CAN
+  PER_CASE
+  PER_STRIP
+  PER_SET
+  PER_ROLL
+  PER_BAG
+  PER_SHEET
+  PER_PAIR
+  PER_CUSTOM
+
+  @@map("price_unit")
+}
+
+enum PricingMode {
+  UNIT
+  VOLUME
+  WEIGHT
+  AREA
+  LENGTH
+
+  @@map("pricing_mode")
+}
+
+enum ProductLinkStatus {
+  DRAFT
+  ON_SALE
+  OFF_SALE
+
+  @@map("product_link_status")
+}
+
+enum ProductStatus {
+  ON_SALE
+  DISCONTINUED
+  DEVELOPING
+
+  @@map("product_status")
+}
+
+enum ProfitReportStatus {
+  DRAFT
+  CONFIRMED
+
+  @@map("profit_report_status")
+}
+
+enum SharePermission {
+  VIEW
+  DOWNLOAD
+  UPLOAD
+  EDIT
+  DELETE
+
+  @@map("share_permission")
+}
+
+enum ShopStatus {
+  ACTIVE
+  REST
+  CLOSED
+
+  @@map("shop_status")
+}
+
+enum SkuStatus {
+  ENABLED
+  DISABLED
+
+  @@map("sku_status")
+}
+
+enum SkuType {
+  SINGLE
+  COMBO
+
+  @@map("sku_type")
+}
+
+enum SupplierStatus {
+  ACTIVE
+  INACTIVE
+
+  @@map("supplier_status")
+}
+
+enum TalentFlagColor {
+  RED
+  GREEN
+  BLUE
+  GRAY
+  YELLOW
+
+  @@map("talent_flag_color")
+}
+
+enum TalentLevel {
+  LV1
+  LV2
+  LV3
+  LV4
+  LV5
+
+  @@map("talent_level")
+}
+
+enum TalentStatus {
+  PENDING
+  COMMUNICATING
+  SAMPLE_SENT
+  COOPERATING
+  ORDER_PLACED
+  REJECTED
+  BLACKLISTED
+
+  @@map("talent_status")
+}
+
+// ==================== 系统升级模块 ====================
+
+model SystemVersion {
+  id            String    @id @default(uuid()) @db.Uuid
+  version       String    @unique @db.VarChar(50)
+  isCurrent     Boolean   @default(false) @map("is_current")
+  backendImage  String?   @map("backend_image") @db.VarChar(255)
+  frontendImage String?   @map("frontend_image") @db.VarChar(255)
+  releaseNotes  String?   @map("release_notes")
+  releaseDate   DateTime? @map("release_date")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("system_versions")
+}
+
+model UpgradeLog {
+  id           String    @id @default(uuid()) @db.Uuid
+  versionFrom  String    @map("version_from") @db.VarChar(50)
+  versionTo    String    @map("version_to") @db.VarChar(50)
+  upgradeType  String    @default("upgrade") @map("upgrade_type") @db.VarChar(20)
+  status       String    @default("running") @db.VarChar(20)
+  backupFile   String?   @map("backup_file") @db.VarChar(500)
+  backupSize   BigInt?   @map("backup_size")
+  backupAt     DateTime? @map("backup_at")
+  startedAt    DateTime  @default(now()) @map("started_at")
+  completedAt  DateTime? @map("completed_at")
+  durationMs   Int?      @map("duration_ms")
+  stepsLog     Json?     @map("steps_log")
+  errorMessage String?   @map("error_message")
+  operatorId   String?   @map("operator_id")
+  operatorIp   String?   @map("operator_ip") @db.VarChar(45)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  operator User? @relation("userUpgradeLogs", fields: [operatorId], references: [id])
+
+  @@index([status])
+  @@index([startedAt])
+  @@map("upgrade_logs")
+}
+
+// ==================== 系统备份模块 ====================
+
+model BackupLog {
+  id           String    @id @default(uuid()) @db.Uuid
+  backupType   String    @map("backup_type") @db.VarChar(20)
+  triggerType  String    @map("trigger_type") @db.VarChar(20)
+  status       String    @default("running") @db.VarChar(20)
+  storageType  String    @map("storage_type") @db.VarChar(20)
+  storagePath  String?   @map("storage_path") @db.VarChar(500)
+  fileSize     BigInt?   @map("file_size")
+  checksum     String?   @map("checksum") @db.VarChar(64) // SHA256 checksum，用于验证备份文件完整性
+  contentTypes String[]  @default([]) @map("content_types")
+  startedAt    DateTime  @default(now()) @map("started_at")
+  completedAt  DateTime? @map("completed_at")
+  durationMs   Int?      @map("duration_ms")
+  errorMessage String?   @map("error_message") @db.Text
+  operatorId   String?   @map("operator_id")
+  operatorIp   String?   @map("operator_ip") @db.VarChar(45)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  operator     User?        @relation("userBackupLogs", fields: [operatorId], references: [id])
+  restoreLogs  RestoreLog[] @relation("BackupRestore")
+  autoRestores RestoreLog[] @relation("AutoBackupRestore")
+
+  @@index([status])
+  @@index([startedAt])
+  @@index([triggerType])
+  @@map("backup_logs")
+}
+
+// ==================== 系统恢复模块 ====================
+
+model RestoreLog {
+  id           String    @id @default(uuid()) @db.Uuid
+  backupId     String    @map("backup_id") @db.Uuid
+  restoreType  String    @default("FULL") @map("restore_type") @db.VarChar(20)
+  status       String    @default("running") @db.VarChar(20)
+  contentTypes String[]  @default([]) @map("content_types")
+  autoBackupId String?   @map("auto_backup_id") @db.Uuid
+  startedAt    DateTime  @default(now()) @map("started_at")
+  completedAt  DateTime? @map("completed_at")
+  durationMs   Int?      @map("duration_ms")
+  stepsLog     Json?     @map("steps_log")
+  errorMessage String?   @map("error_message") @db.Text
+  operatorId   String?   @map("operator_id")
+  operatorIp   String?   @map("operator_ip") @db.VarChar(45)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  backup     BackupLog  @relation("BackupRestore", fields: [backupId], references: [id], onDelete: Cascade)
+  autoBackup BackupLog? @relation("AutoBackupRestore", fields: [autoBackupId], references: [id], onDelete: Cascade)
+  operator   User?      @relation("userRestoreLogs", fields: [operatorId], references: [id], onDelete: SetNull)
+
+  @@index([backupId])
+  @@index([status])
+  @@index([startedAt])
+  @@map("restore_logs")
+}
+
+// ==================== 编号查重模块 ====================
+
+model NumberCheckBatch {
+  id         String   @id @default(uuid())
+  batchNo    String   @unique @map("batch_no") @db.VarChar(50)
+  fileId     String?  @map("file_id")
+  totalCount Int      @default(0) @map("total_count")
+  createdBy  String?  @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  records NumberCheckRecord[]
+
+  file    File? @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  creator User? @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([batchNo])
+  @@index([createdAt])
+  @@index([fileId])
+  @@index([createdBy])
+  @@map("number_check_batches")
+}
+
+model NumberCheckRecord {
+  id         String             @id @default(uuid())
+  code       String             @map("code") @db.VarChar(255)
+  batchId    String             @map("batch_id")
+  isSettled  Boolean            @default(false) @map("is_settled")
+  importedAt DateTime           @default(now()) @map("imported_at")
+  remark     String?
+  status     NumberRecordStatus @default(ACTIVE)
+  createdBy  String?            @map("created_by")
+  createdAt  DateTime           @default(now()) @map("created_at")
+  updatedAt  DateTime           @updatedAt @map("updated_at")
+
+  batch   NumberCheckBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  creator User?            @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([code, status])
+  @@index([batchId])
+  @@index([status])
+  @@index([importedAt])
+  @@index([isSettled])
+  @@index([createdBy])
+  @@index([createdAt])
+  @@map("number_check_records")
+}
+
+enum NumberRecordStatus {
+  ACTIVE
+  VOID
+
+  @@map("number_record_status")
+}
+
+// ─────────────────────────── 付款记录模块 ───────────────────────────
+
+model PaymentRecord {
+  id                   String          @id @default(uuid()) @db.Uuid
+  recordNo             String          @unique @map("record_no") @db.VarChar(50)
+  title                String          @db.VarChar(200)
+  amount               Decimal         @db.Decimal(12, 2)
+  currency             PaymentCurrency @default(CNY)
+  paymentTime          DateTime        @map("payment_time")
+  paymentType          PaymentType    @map("payment_type")
+  receiverType         ReceiverType    @map("receiver_type")
+  receiverName         String?         @map("receiver_name") @db.VarChar(200)
+  supplierId           String?         @map("supplier_id") @db.Uuid
+  consumableSupplierId String?         @map("consumable_supplier_id") @db.Uuid
+  customReceiverName   String?         @map("custom_receiver_name") @db.VarChar(200)
+  payMethod            PayMethod       @map("pay_method")
+  fromAccount          String?         @map("from_account") @db.VarChar(200)
+  invoiceStatus        InvoiceStatus   @map("invoice_status")
+  status               PaymentStatus   @default(DRAFT)
+  payerId              String          @map("payer_id")
+  remark               String?
+  deletedAt            DateTime?       @map("deleted_at")
+  createdBy            String?         @map("created_by")
+  updatedBy            String?         @map("updated_by")
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+
+  payer              User               @relation("PaymentPayer", fields: [payerId], references: [id], onDelete: Restrict)
+  supplier           Supplier?          @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  consumableSupplier ConsumableSupplier? @relation(fields: [consumableSupplierId], references: [id], onDelete: SetNull)
+  bills              PaymentBill[]
+  attachments        PaymentAttachment[]
+
+  @@index([paymentTime])
+  @@index([paymentType])
+  @@index([receiverType])
+  @@index([supplierId])
+  @@index([consumableSupplierId])
+  @@index([payerId])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("payment_records")
+}
+
+model PaymentBill {
+  id              String    @id @default(uuid()) @db.Uuid
+  paymentRecordId String    @map("payment_record_id") @db.Uuid
+  billNumber      String    @map("bill_number") @db.VarChar(100)
+  billDate        DateTime? @map("bill_date")
+  billAmount      Decimal?  @map("bill_amount") @db.Decimal(12, 2)
+  billFileId      String?   @map("bill_file_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  paymentRecord PaymentRecord @relation(fields: [paymentRecordId], references: [id], onDelete: Cascade)
+  billFile      File?         @relation("PaymentBillFile", fields: [billFileId], references: [id], onDelete: SetNull)
+
+  @@index([paymentRecordId])
+  @@index([billFileId])
+  @@map("payment_bills")
+}
+
+model PaymentAttachment {
+  id              String                 @id @default(uuid()) @db.Uuid
+  paymentRecordId String                 @map("payment_record_id") @db.Uuid
+  type            PaymentAttachmentType
+  fileId          String                 @map("file_id")
+  remark          String?
+  createdAt       DateTime               @default(now()) @map("created_at")
+
+  paymentRecord PaymentRecord @relation(fields: [paymentRecordId], references: [id], onDelete: Cascade)
+  file          File          @relation("PaymentAttachmentFile", fields: [fileId], references: [id], onDelete: Restrict)
+
+  @@index([paymentRecordId])
+  @@index([fileId])
+  @@index([type])
+  @@map("payment_attachments")
+}
+
+enum PaymentCurrency {
+  CNY
+  USD
+  EUR
+  OTHER
+
+  @@map("payment_currency")
+}
+
+enum PaymentType {
+  GOODS
+  FREIGHT
+  CONSUMABLE
+  PROMOTION
+  SERVICE
+  REFUND
+  OTHER
+
+  @@map("payment_type")
+}
+
+enum ReceiverType {
+  SUPPLIER
+  CONSUMABLE_SUPPLIER
+  CUSTOM
+
+  @@map("payment_receiver_type")
+}
+
+enum PayMethod {
+  CORPORATE_TRANSFER
+  PERSONAL_TRANSFER
+  CASH
+  ACCEPTANCE
+  OTHER
+
+  @@map("payment_pay_method")
+}
+
+enum InvoiceStatus {
+  PENDING
+  ISSUED
+  NOT_REQUIRED
+  VOID
+
+  @@map("payment_invoice_status")
+}
+
+enum PaymentStatus {
+  DRAFT
+  PAID
+  FAILED
+  CANCELLED
+
+  @@map("payment_status")
+}
+
+enum PaymentAttachmentType {
+  SCREENSHOT
+  INVOICE
+
+  @@map("payment_attachment_type")
+}

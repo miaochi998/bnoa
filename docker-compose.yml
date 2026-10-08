@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bnoa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bnoa
+      TZ: Asia/Shanghai
+    ports:
+      - "5437:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bnoa-network
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: bnoa-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6382:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bnoa-network
+
+  # ============================================
+  # ClamAV 病毒扫描服务
+  # ============================================
+  clamav:
+    image: clamav/clamav:stable
+    container_name: bnoa-clamav
+    restart: unless-stopped
+    environment:
+      FRESHCLAM_CHECKS: 4
+      TZ: Asia/Shanghai
+    volumes:
+      - clamav_data:/var/lib/clamav
+    networks:
+      - bnoa-network
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "3"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  clamav_data:
+    driver: local
+
+networks:
+  bnoa-network:
+    driver: bridge

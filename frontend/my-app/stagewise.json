@@ -1,0 +1,7 @@
+{
+  "port": 3100,
+  "appPort": 6521,
+  "autoPlugins": true,
+  "plugins": [],
+  "_comment": "支持双模式：6521(前台) / 6522(后台)"
+}

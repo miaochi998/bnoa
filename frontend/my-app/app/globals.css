@@ -1,0 +1,204 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+}
+
+/* BNOA Design System - Minimalist Dark Theme */
+:root {
+  --radius: 0.5rem;
+  
+  /* Dark mode as default (Minimalist Dark) */
+  --background: hsl(0 0% 12%);           /* #1e1e1e - L1 页面底色 */
+  --foreground: hsl(0 0% 100%);          /* #ffffff - 主要文字 */
+  
+  --card: hsl(0 0% 15%);                 /* #262626 - L2 卡片/容器 */
+  --card-foreground: hsl(0 0% 100%);     /* #ffffff */
+  --card-hover: hsl(0 0% 18%);           /* #2e2e2e - L3 悬停状态 */
+  
+  --popover: hsl(0 0% 15%);              /* #262626 */
+  --popover-foreground: hsl(0 0% 100%);  /* #ffffff */
+  
+  --primary: hsl(210 100% 62%);          /* #409fff - 蓝色主色调 */
+  --primary-foreground: hsl(0 0% 100%);  /* #ffffff */
+  
+  --secondary: hsl(0 0% 18%);            /* #2e2e2e */
+  --secondary-foreground: hsl(0 0% 100%); /* #ffffff */
+  
+  --muted: hsl(0 0% 18%);                /* #2e2e2e */
+  --muted-foreground: hsl(0 0% 56%);     /* #8e8e8e - 次要文字 */
+  
+  --accent: hsl(0 0% 18%);               /* #2e2e2e */
+  --accent-foreground: hsl(0 0% 100%);   /* #ffffff */
+  
+  --destructive: hsl(0 84% 60%);         /* #ff4444 - 错误/危险 */
+  --destructive-foreground: hsl(0 0% 100%); /* #ffffff */
+  
+  --success: hsl(120 100% 36%);          /* #00b800 - 成功状态 */
+  --warning: hsl(45 100% 51%);           /* #ffa500 - 警告状态 */
+  
+  --border: hsl(0 0% 18%);               /* #2e2e2e - 基础边框 */
+  --input: hsl(0 0% 31%);                /* #4e4e4e - 输入框边框 */
+  --ring: hsl(210 100% 62%);             /* #409fff - 焦点环 */
+  
+  /* Chart colors */
+  --chart-1: hsl(210 100% 62%);          /* #409fff */
+  --chart-2: hsl(120 100% 36%);          /* #00b800 */
+  --chart-3: hsl(45 100% 51%);           /* #ffa500 */
+  --chart-4: hsl(0 84% 60%);             /* #ff4444 */
+  --chart-5: hsl(210 100% 72%);          /* #66b3ff */
+  
+  /* Sidebar */
+  --sidebar: hsl(0 0% 15%);              /* #262626 */
+  --sidebar-foreground: hsl(0 0% 100%);  /* #ffffff */
+  --sidebar-primary: hsl(210 100% 62%);  /* #409fff */
+  --sidebar-primary-foreground: hsl(0 0% 100%); /* #ffffff */
+  --sidebar-accent: hsl(0 0% 18%);       /* #2e2e2e */
+  --sidebar-accent-foreground: hsl(0 0% 100%); /* #ffffff */
+  --sidebar-border: hsl(0 0% 18%);       /* #2e2e2e */
+  --sidebar-ring: hsl(210 100% 62%);     /* #409fff */
+}
+
+/* Light mode (optional - if needed) */
+.light {
+  --background: hsl(0 0% 100%);
+  --foreground: hsl(0 0% 12%);
+  
+  --card: hsl(0 0% 98%);
+  --card-foreground: hsl(0 0% 12%);
+  --card-hover: hsl(0 0% 96%);
+  
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(0 0% 12%);
+  
+  --primary: hsl(210 100% 62%);
+  --primary-foreground: hsl(0 0% 100%);
+  
+  --secondary: hsl(0 0% 96%);
+  --secondary-foreground: hsl(0 0% 12%);
+  
+  --muted: hsl(0 0% 96%);
+  --muted-foreground: hsl(0 0% 45%);
+  
+  --accent: hsl(0 0% 96%);
+  --accent-foreground: hsl(0 0% 12%);
+  
+  --destructive: hsl(0 84% 60%);
+  --destructive-foreground: hsl(0 0% 100%);
+  
+  --border: hsl(0 0% 90%);
+  --input: hsl(0 0% 80%);
+  --ring: hsl(210 100% 62%);
+  
+  --sidebar: hsl(0 0% 98%);
+  --sidebar-foreground: hsl(0 0% 12%);
+  --sidebar-border: hsl(0 0% 90%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  
+  /* Custom scrollbar for dark theme */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: hsl(0 0% 12%);
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: hsl(0 0% 25%);
+    border-radius: 4px;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(0 0% 30%);
+  }
+}
+
+/* Animation utilities */
+@layer utilities {
+  .animate-in {
+    animation: animate-in 0.2s ease-out;
+  }
+  
+  .animate-out {
+    animation: animate-out 0.2s ease-in;
+  }
+  
+  @keyframes animate-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes animate-out {
+    from {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+  }
+}

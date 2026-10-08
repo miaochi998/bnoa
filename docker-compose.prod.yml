@@ -1,0 +1,146 @@
+# BNOA 生产环境 Docker Compose 配置
+# 版本: 1.0.0
+
+services:
+  # ============================================
+  # PostgreSQL 数据库
+  # ============================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: bnoa-prod-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?请设置数据库密码}
+      POSTGRES_DB: ${DB_NAME:-bnoa}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bnoa-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # Redis 缓存
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: bnoa-prod-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - bnoa-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # ClamAV 病毒扫描服务
+  # ============================================
+  clamav:
+    image: clamav/clamav:stable
+    container_name: bnoa-prod-clamav
+    restart: unless-stopped
+    environment:
+      FRESHCLAM_CHECKS: 4
+      TZ: Asia/Shanghai
+    volumes:
+      - clamav_data:/var/lib/clamav
+    networks:
+      - bnoa-network
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "3"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # ============================================
+  # 后端服务
+  # ============================================
+  backend:
+    image: ${DOCKER_IMAGE_PREFIX:-miaochi/bnoa}-backend:${APP_VERSION:-latest}
+    container_name: bnoa-prod-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-bnoa}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      REDIS_DB: 0
+      JWT_SECRET: ${JWT_SECRET:?请设置JWT密钥}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-1h}
+      REFRESH_TOKEN_EXPIRATION: ${REFRESH_TOKEN_EXPIRATION:-7d}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      API_VERSION: v1
+      LOCAL_UPLOAD_ROOT: /app/uploads
+      SERVER_BASE_URL: ${SERVER_BASE_URL:-http://localhost:6520}
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+    volumes:
+      - upload_data:/app/uploads
+    ports:
+      - "${BACKEND_PORT:-6520}:3000"
+    networks:
+      - bnoa-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 5
+
+  # ============================================
+  # 前端服务
+  # ============================================
+  frontend:
+    image: ${DOCKER_IMAGE_PREFIX:-miaochi/bnoa}-frontend:${APP_VERSION:-latest}
+    container_name: bnoa-prod-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: "0.0.0.0"
+    ports:
+      - "${FRONTEND_PORT:-6521}:3000"
+    networks:
+      - bnoa-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  upload_data:
+    driver: local
+  clamav_data:
+    driver: local
+
+networks:
+  bnoa-network:
+    driver: bridge

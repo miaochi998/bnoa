@@ -1,0 +1,361 @@
+/* components/shared/RichTextEditor/editor.css */
+
+/* 编辑区域 */
+.ProseMirror {
+    padding: 16px 24px;
+    min-height: 200px;
+    outline: none;
+    color: var(--foreground);
+    font-size: 14px;
+    line-height: 1.8;
+}
+
+.ProseMirror:focus {
+    outline: none;
+}
+
+/* 占位符 */
+.ProseMirror p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    color: var(--muted-foreground);
+    pointer-events: none;
+    height: 0;
+}
+
+/* 标题样式 */
+.ProseMirror h1 {
+    font-size: 24px;
+    font-weight: 700;
+    margin: 24px 0 12px;
+    line-height: 1.4;
+}
+
+.ProseMirror h2 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 20px 0 10px;
+    line-height: 1.4;
+}
+
+.ProseMirror h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 16px 0 8px;
+    line-height: 1.4;
+}
+
+/* 段落 */
+.ProseMirror p {
+    margin: 0 0 8px;
+}
+
+/* 列表 */
+.ProseMirror ul,
+.ProseMirror ol {
+    padding-left: 24px;
+    margin: 8px 0;
+}
+
+.ProseMirror li {
+    margin: 4px 0;
+}
+
+/* 任务列表 */
+.ProseMirror ul[data-type='taskList'] {
+    list-style: none;
+    padding-left: 0;
+}
+
+.ProseMirror ul[data-type='taskList'] li {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.ProseMirror ul[data-type='taskList'] li input[type='checkbox'] {
+    margin-top: 4px;
+    accent-color: var(--primary);
+}
+
+/* 引用块 */
+.ProseMirror blockquote {
+    border-left: 3px solid var(--primary);
+    padding-left: 16px;
+    margin: 12px 0;
+    color: var(--muted-foreground);
+}
+
+/* 代码块 */
+.ProseMirror pre {
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    margin: 12px 0;
+    overflow-x: auto;
+}
+
+.ProseMirror pre code {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--foreground);
+}
+
+/* 行内代码 */
+.ProseMirror code {
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 13px;
+}
+
+/* 分割线 */
+.ProseMirror hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 24px 0;
+}
+
+/* 链接 */
+.ProseMirror a {
+    color: var(--primary);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.ProseMirror a:hover {
+    text-decoration: underline;
+}
+
+/* 图片 */
+.ProseMirror img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    margin: 12px 0;
+}
+
+.ProseMirror img.ProseMirror-selectednode {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* 表格 */
+.ProseMirror table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 12px 0;
+}
+
+.ProseMirror th,
+.ProseMirror td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+}
+
+.ProseMirror th {
+    background: var(--background);
+    font-weight: 600;
+}
+
+.ProseMirror .selectedCell {
+    background: color-mix(in srgb, var(--primary) 15%, transparent);
+}
+
+/* 高亮 */
+.ProseMirror mark {
+    background: #FACC15;
+    color: #000000;
+    border-radius: 2px;
+    padding: 1px 2px;
+}
+
+/* 工具栏容器 */
+.editor-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+}
+
+/* 工具栏分隔线 */
+.editor-toolbar-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    margin: 0 4px;
+}
+
+/* 工具栏按钮 */
+.editor-toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+    transition: all 150ms;
+}
+
+.editor-toolbar-btn:hover {
+    background: var(--card-hover);
+    color: var(--foreground);
+}
+
+.editor-toolbar-btn.is-active {
+    background: color-mix(in srgb, var(--primary) 15%, transparent);
+    color: var(--primary);
+}
+
+.editor-toolbar-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ====================================
+   发布内容渲染样式
+   用于包裹编辑器输出的 HTML 内容
+   ==================================== */
+.rich-text-content {
+    color: var(--foreground);
+    font-size: 14px;
+    line-height: 1.8;
+}
+
+.rich-text-content h1 {
+    font-size: 24px;
+    font-weight: 700;
+    margin: 24px 0 12px;
+    line-height: 1.4;
+}
+
+.rich-text-content h2 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 20px 0 10px;
+    line-height: 1.4;
+}
+
+.rich-text-content h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 16px 0 8px;
+    line-height: 1.4;
+}
+
+.rich-text-content p {
+    margin: 0 0 8px;
+}
+
+.rich-text-content ul,
+.rich-text-content ol {
+    padding-left: 24px;
+    margin: 8px 0;
+}
+
+.rich-text-content li {
+    margin: 4px 0;
+}
+
+.rich-text-content blockquote {
+    border-left: 3px solid var(--primary);
+    padding-left: 16px;
+    margin: 12px 0;
+    color: var(--muted-foreground);
+}
+
+.rich-text-content pre {
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    margin: 12px 0;
+    overflow-x: auto;
+}
+
+.rich-text-content pre code {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--foreground);
+}
+
+.rich-text-content code {
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 13px;
+}
+
+.rich-text-content hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 24px 0;
+}
+
+.rich-text-content a {
+    color: var(--primary);
+    text-decoration: none;
+}
+
+.rich-text-content a:hover {
+    text-decoration: underline;
+}
+
+.rich-text-content img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    margin: 12px 0;
+}
+
+.rich-text-content table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 12px 0;
+}
+
+.rich-text-content th,
+.rich-text-content td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+}
+
+.rich-text-content th {
+    background: var(--background);
+    font-weight: 600;
+}
+
+.rich-text-content mark {
+    background: #FACC15;
+    color: #000000;
+    border-radius: 2px;
+    padding: 1px 2px;
+}
+
+.rich-text-content video {
+    max-width: 100%;
+    border-radius: 6px;
+    margin: 12px 0;
+}
+
+.rich-text-content iframe {
+    max-width: 100%;
+    border-radius: 6px;
+    margin: 12px 0;
+}
