@@ -15,7 +15,9 @@
 set -uo pipefail
 
 # 只检查将要被提交的文件（新增/修改/改名）
-STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
+# ⚠️ 必须关闭路径转义（core.quotePath=false）：git 默认把中文路径输出成八进制转义
+#    （如 \350\264\242\345\212\241/...），会导致下面「财务/」等中文模式永远匹配不到。
+STAGED=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR)
 [ -z "$STAGED" ] && exit 0
 
 # ── 白名单：这些虽然命中下面的敏感模式，但属于"代码的一部分"，必须允许 ──
@@ -29,7 +31,7 @@ ALLOW='(^|/)\.env\.example$|(^|/)\.env\.production\.example$|^backend/prisma/mig
 #   *.sql *.dump                  数据库导出（迁移 SQL 已在白名单放行）
 #   *.xlsx *.xls                  表格（常含业务/财务数据）
 #   PROJECT_MEMORY.md .mcp.json   本地记忆与工具配置
-BLOCK='(^|/)docs/|(^|/)backups/|(^|/)财务/|(^|/)(node_modules|dist|\.next|out|logs|uploads|coverage)/|(^|/)\.env$|(^|/)\.env\.local$|(^|/)\.env\..*\.local$|\.sql$|\.dump$|\.xlsx$|\.xls$|(^|/)PROJECT_MEMORY\.md$|(^|/)\.mcp\.json$'
+BLOCK='(^|/)docs/|(^|/)backups/|(^|/)财务/|(^|/)(node_modules|dist|\.next|out|logs|uploads|coverage)/|(^|/)\.env(\.[^/]*)?$|\.sql$|\.dump$|\.xlsx$|\.xls$|(^|/)PROJECT_MEMORY\.md$|(^|/)\.mcp\.json$'
 
 VIOLATIONS=$(printf '%s\n' "$STAGED" | grep -vE "$ALLOW" | grep -E "$BLOCK" || true)
 
