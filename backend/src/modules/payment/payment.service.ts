@@ -111,6 +111,14 @@ export class PaymentService {
               })),
             }
           : undefined,
+        purchaseReceiptLinks: dto.purchaseReceiptIds?.length
+          ? {
+              create: dto.purchaseReceiptIds.map((rid) => ({
+                purchaseReceiptId: rid,
+                createdBy: userId,
+              })),
+            }
+          : undefined,
       },
       include: {
         payer: { select: { name: true } },
@@ -169,6 +177,20 @@ export class PaymentService {
         payer: { select: { name: true } },
         bills: { include: { billFile: { select: { id: true, name: true } } } },
         attachments: { include: { file: { select: { id: true, name: true } } } },
+        purchaseReceiptLinks: {
+          include: {
+            purchaseReceipt: {
+              select: {
+                id: true,
+                receiptNo: true,
+                receiptTime: true,
+                billNo: true,
+                billAmount: true,
+                deletedAt: true,
+              },
+            },
+          },
+        },
       },
     });
     if (!rec) throw new NotFoundException('付款记录不存在');
@@ -191,6 +213,16 @@ export class PaymentService {
         remark: a.remark,
         file: a.file,
       })),
+      purchaseReceipts: ((rec as any).purchaseReceiptLinks || [])
+        .map((l: any) => l.purchaseReceipt)
+        .filter((r: any) => r && !r.deletedAt)
+        .map((r: any) => ({
+          id: r.id,
+          receiptNo: r.receiptNo,
+          receiptTime: r.receiptTime,
+          billNo: r.billNo,
+          billAmount: r.billAmount === null ? null : Number(r.billAmount),
+        })),
     };
   }
 
@@ -218,6 +250,11 @@ export class PaymentService {
       }
       if (dto.attachments) {
         await tx.paymentAttachment.deleteMany({ where: { paymentRecordId: id } });
+      }
+      if (dto.purchaseReceiptIds) {
+        await tx.paymentRecordPurchaseReceipt.deleteMany({
+          where: { paymentRecordId: id },
+        });
       }
 
       return tx.paymentRecord.update({
@@ -268,6 +305,14 @@ export class PaymentService {
                   type: a.type,
                   fileId: a.fileId,
                   remark: a.remark,
+                })),
+              }
+            : undefined,
+          purchaseReceiptLinks: dto.purchaseReceiptIds
+            ? {
+                create: dto.purchaseReceiptIds.map((rid) => ({
+                  purchaseReceiptId: rid,
+                  createdBy: userId,
                 })),
               }
             : undefined,

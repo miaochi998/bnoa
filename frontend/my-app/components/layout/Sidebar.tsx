@@ -45,6 +45,7 @@ import {
   Wrench,
   ScanSearch,
   Wallet,
+  PackageCheck,
 } from 'lucide-react';
 import { useState } from 'react';
 import { usePermissionStore } from '@/lib/stores/permission-store';
@@ -321,6 +322,13 @@ const menuItems: MenuItem[] = [
         href: '/business/payments',
         icon: Wallet,
         permission: 'payment:view',
+        groupLabel: '财务',
+      },
+      {
+        title: '进货入库记录',
+        href: '/business/purchase-receipts',
+        icon: PackageCheck,
+        permission: 'purchase:view',
         groupLabel: '财务',
       },
     ],

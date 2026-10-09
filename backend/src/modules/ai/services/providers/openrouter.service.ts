@@ -68,8 +68,15 @@ export class OpenRouterService implements IAIService {
                 model: modelId,
                 messages: messages.map((m) => ({
                     role: m.role as 'system' | 'user' | 'assistant',
-                    content: m.content,
-                })),
+                    // 多模态内容退化为纯文本（图片识别请使用 DeepSeek provider）
+                    content:
+                        typeof m.content === 'string'
+                            ? m.content
+                            : m.content
+                                  .filter((p) => p.type === 'text')
+                                  .map((p) => (p as any).text)
+                                  .join('\n'),
+                })) as any,
                 temperature: options?.temperature ?? 0.7,
                 max_tokens: options?.maxTokens ?? 2000,
                 top_p: options?.topP ?? 0.9,

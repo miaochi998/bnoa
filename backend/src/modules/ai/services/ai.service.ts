@@ -131,7 +131,14 @@ export class AIService {
 
     private detectActionType(messages: Message[]): string {
         if (!messages.length) return 'custom';
-        const lastMsg = messages[messages.length - 1].content;
+        const raw = messages[messages.length - 1].content;
+        const lastMsg =
+            typeof raw === 'string'
+                ? raw
+                : raw
+                      .filter((p) => p.type === 'text')
+                      .map((p) => (p as any).text)
+                      .join(' ');
 
         if (lastMsg.includes('续写') || lastMsg.includes('继续写'))
             return 'continue';

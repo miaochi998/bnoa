@@ -38,6 +38,7 @@ import { UpgradeModule } from './modules/upgrade/upgrade.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { NumberCheckModule } from './modules/number-check/number-check.module';
 import { PaymentModule } from './modules/payment/payment.module';
+import { PurchaseReceiptModule } from './modules/purchase-receipt/purchase-receipt.module';
 import { RedisService } from './common/services/redis.service';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -83,6 +84,7 @@ import { AppService } from './app.service';
     BackupModule,
     NumberCheckModule,
     PaymentModule,
+    PurchaseReceiptModule,
   ],
   controllers: [AppController],
   providers: [AppService, RedisService],

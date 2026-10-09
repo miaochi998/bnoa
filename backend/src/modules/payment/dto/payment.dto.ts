@@ -152,6 +152,15 @@ export class CreatePaymentDto {
   @ValidateNested({ each: true })
   @Type(() => PaymentAttachmentDto)
   attachments?: PaymentAttachmentDto[];
+
+  @ApiPropertyOptional({
+    description: '关联的入库单ID列表（本次打款覆盖哪几笔入库）',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  purchaseReceiptIds?: string[];
 }
 
 export class UpdatePaymentDto {
@@ -261,6 +270,15 @@ export class UpdatePaymentDto {
   @ValidateNested({ each: true })
   @Type(() => PaymentAttachmentDto)
   attachments?: PaymentAttachmentDto[];
+
+  @ApiPropertyOptional({
+    description: '关联的入库单ID列表（整体替换）',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  purchaseReceiptIds?: string[];
 }
 
 export class PaymentQueryDto {

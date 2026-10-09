@@ -56,8 +56,8 @@ export class DeepSeekService implements IAIService {
                 model: modelId,
                 messages: messages.map((m) => ({
                     role: m.role as 'system' | 'user' | 'assistant',
-                    content: m.content,
-                })),
+                    content: this.toOpenAIContent(m.content),
+                })) as any,
                 temperature: options?.temperature ?? 0.7,
                 max_tokens: options?.maxTokens ?? 2000,
                 top_p: options?.topP ?? 0.9,
@@ -87,5 +87,23 @@ export class DeepSeekService implements IAIService {
             );
             throw new Error(`AI 服务调用失败: ${error.message}`);
         }
+    }
+
+    /**
+     * 将内部消息内容转为 OpenAI/DeepSeek 兼容格式：
+     * 纯文本直接返回字符串；多模态返回 content 数组（text + image_url base64）。
+     */
+    private toOpenAIContent(content: Message['content']): any {
+        if (typeof content === 'string') return content;
+        return content.map((p) =>
+            p.type === 'text'
+                ? { type: 'text', text: p.text }
+                : {
+                      type: 'image_url',
+                      image_url: {
+                          url: `data:${p.mimeType};base64,${p.data}`,
+                      },
+                  },
+        );
     }
 }

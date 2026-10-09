@@ -265,4 +265,12 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   { name: '编辑付款记录', code: 'payment:update', type: 'BUTTON', description: '编辑付款记录/状态变更', parentCode: 'payment:view' },
   { name: '删除付款记录', code: 'payment:delete', type: 'BUTTON', description: '删除付款记录（软删）', parentCode: 'payment:view' },
   { name: '导出付款记录', code: 'payment:export', type: 'BUTTON', description: '导出付款记录', parentCode: 'payment:view' },
+  { name: '进货入库记录', code: 'purchase:view', type: 'MENU', description: '进货入库记录菜单权限', parentCode: null },
+  { name: '查看入库记录列表', code: 'purchase:list', type: 'API', description: '查看进货入库记录列表', parentCode: 'purchase:view' },
+  { name: '查看入库记录详情', code: 'purchase:detail', type: 'API', description: '查看进货入库记录详情', parentCode: 'purchase:view' },
+  { name: '新增入库记录', code: 'purchase:create', type: 'BUTTON', description: '新增进货入库记录', parentCode: 'purchase:view' },
+  { name: '编辑入库记录', code: 'purchase:update', type: 'BUTTON', description: '编辑自己提交的入库记录', parentCode: 'purchase:view' },
+  { name: '删除入库记录', code: 'purchase:delete', type: 'BUTTON', description: '删除自己提交的入库记录（软删）', parentCode: 'purchase:view' },
+  { name: '管理所有入库记录', code: 'purchase:manage', type: 'BUTTON', description: '可修改/删除他人提交的入库记录', parentCode: 'purchase:view' },
+  { name: '导出入库记录', code: 'purchase:export', type: 'BUTTON', description: '导出入库记录 Excel', parentCode: 'purchase:view' },
 ];

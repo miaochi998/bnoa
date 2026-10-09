@@ -1,6 +1,11 @@
+export type MessageContentPart =
+    | { type: 'text'; text: string }
+    | { type: 'image'; mimeType: string; data: string };
+
 export interface Message {
     role: 'system' | 'user' | 'assistant';
-    content: string;
+    /** 纯文本，或多模态内容数组（文本 + 图片 base64） */
+    content: string | MessageContentPart[];
 }
 
 export interface GenerateOptions {

@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { apiClient } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -14,9 +15,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Upload, X } from 'lucide-react';
+import { Link2, Loader2, Plus, Trash2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { PAYMENT_TYPE_LABEL, PAY_METHOD_LABEL, CURRENCY_LABEL, INVOICE_STATUS_LABEL, STATUS_LABEL } from './labels';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 
 interface PaymentFormProps {
   open: boolean;
@@ -41,11 +43,67 @@ interface AttachmentItem {
   remark?: string;
 }
 
+/**
+ * /upload/file 的返回体。
+ * ⚠️ 已知坑：返回的文件标识字段是 `fileId`，不是 `id`；
+ * 旧代码取 `item.id` 会拿到 undefined，导致附件静默丢失（界面仍提示"上传成功"）。
+ */
+interface UploadResult {
+  fileId?: string;
+  id?: string;
+}
+
+function pickFileId(item: unknown): string {
+  const r = item as UploadResult | null | undefined;
+  return r?.fileId || r?.id || '';
+}
+
+/** 可关联的入库单候选（来自 /purchase-receipts/for-payment） */
+interface ReceiptCandidate {
+  id: string;
+  receiptNo: string;
+  receiptTime?: string | null;
+  billNo?: string | null;
+  billAmount?: number | null;
+  itemSummary?: string;
+  payment?: {
+    status?: string;
+    paidAmount?: number;
+    linkedCount?: number;
+  } | null;
+}
+
 const PAYMENT_TYPES = Object.entries(PAYMENT_TYPE_LABEL).map(([value, label]) => ({ value, label }));
 const PAY_METHODS = Object.entries(PAY_METHOD_LABEL).map(([value, label]) => ({ value, label }));
 const CURRENCIES = Object.entries(CURRENCY_LABEL).map(([value, label]) => ({ value, label }));
 const INVOICE_STATUSES = Object.entries(INVOICE_STATUS_LABEL).map(([value, label]) => ({ value, label }));
 const STATUSES = Object.entries(STATUS_LABEL).map(([value, label]) => ({ value, label }));
+
+/** 编辑态下原记录已关联的入库单摘要（详情接口 purchaseReceipts） */
+interface LinkedReceiptSummary {
+  id: string;
+  receiptNo?: string;
+  receiptTime?: string | null;
+  billNo?: string | null;
+  billAmount?: number | null;
+}
+
+const RECEIPT_PAYMENT_LABEL: Record<string, string> = {
+  SETTLED: '已结清',
+  PARTIAL: '部分付款',
+  UNPAID: '未付款',
+  NO_AMOUNT: '未填金额',
+};
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '-';
+  return d.toLocaleString('zh-CN', { hour12: false });
+}
+
+const receiptMoney = (n?: number | null) =>
+  n === null || n === undefined ? '-' : `¥${Number(n).toLocaleString()}`;
 
 export function PaymentForm({ open, onOpenChange, mode, record, onSuccess }: PaymentFormProps) {
   const [title, setTitle] = useState('');
@@ -67,9 +125,30 @@ export function PaymentForm({ open, onOpenChange, mode, record, onSuccess }: Pay
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // ===== 关联入库单（多选） =====
+  const [receiptCandidates, setReceiptCandidates] = useState<ReceiptCandidate[]>([]);
+  const [selectedReceiptIds, setSelectedReceiptIds] = useState<string[]>([]);
+  const [receiptsLoading, setReceiptsLoading] = useState(false);
+  const [receiptKeyword, setReceiptKeyword] = useState('');
+  const debouncedReceiptKeyword = useDebouncedValue(receiptKeyword, 300);
+
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [consumableSuppliers, setConsumableSuppliers] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+
+  /** 当前「关联入库单」的收款方 key；为空表示不展示该区块 */
+  const receiptKey = useMemo(() => {
+    if (receiverType === 'SUPPLIER' && supplierId !== 'none') return `S:${supplierId}`;
+    if (receiverType === 'CONSUMABLE_SUPPLIER' && consumableSupplierId !== 'none')
+      return `C:${consumableSupplierId}`;
+    return '';
+  }, [receiverType, supplierId, consumableSupplierId]);
+
+  /** 编辑态下原记录已关联的入库单（用于默认勾选 / 补显示） */
+  const linkedReceipts = useMemo<LinkedReceiptSummary[]>(() => {
+    const list = (record?.purchaseReceipts ?? []) as LinkedReceiptSummary[];
+    return list.filter((r) => !!r?.id);
+  }, [record]);
 
   const loadOptions = useCallback(async () => {
     try {
@@ -120,6 +199,8 @@ export function PaymentForm({ open, onOpenChange, mode, record, onSuccess }: Pay
         fileId: a.file?.id || a.fileId,
         remark: a.remark,
       })));
+      // 已关联的入库单默认勾选（详情接口返回 purchaseReceipts）
+      setSelectedReceiptIds(linkedReceipts.map((r) => r.id));
     } else {
       // create：默认当前时间
       const now = new Date();
@@ -140,20 +221,81 @@ export function PaymentForm({ open, onOpenChange, mode, record, onSuccess }: Pay
       setRemark('');
       setBills([]);
       setAttachments([]);
+      setSelectedReceiptIds([]);
     }
-  }, [open, mode, record, loadOptions]);
+  }, [open, mode, record, loadOptions, linkedReceipts]);
+
+  // 关联入库单候选：按收款方（供应商 / 耗材供应商）拉取，已结清的由后端过滤掉
+  useEffect(() => {
+    if (!open || !receiptKey) {
+      setReceiptCandidates([]);
+      setReceiptsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setReceiptsLoading(true);
+    (async () => {
+      try {
+        const [prefix, sid] = receiptKey.split(':');
+        const list = await apiClient.purchaseReceiptForPayment({
+          supplierType: prefix === 'C' ? 'CONSUMABLE_SUPPLIER' : 'SUPPLIER',
+          supplierId: sid,
+          keyword: debouncedReceiptKeyword || undefined,
+        });
+        if (!cancelled) setReceiptCandidates((list ?? []) as ReceiptCandidate[]);
+      } catch {
+        // 权限不足/无候选都不报错，展示空态即可
+        if (!cancelled) setReceiptCandidates([]);
+      } finally {
+        if (!cancelled) setReceiptsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, receiptKey, debouncedReceiptKeyword]);
+
+  /** 已勾选但不在候选里（已结清/详情带回）的入库单，补出来避免"勾选看不见" */
+  const displayReceipts = useMemo(() => {
+    const list = [...receiptCandidates];
+    const have = new Set(list.map((c) => c.id));
+    selectedReceiptIds.forEach((id) => {
+      if (have.has(id)) return;
+      const linked = linkedReceipts.find((r) => r.id === id);
+      if (linked) {
+        list.push({
+          id: linked.id,
+          receiptNo: linked.receiptNo || '-',
+          receiptTime: linked.receiptTime,
+          billNo: linked.billNo,
+          billAmount: linked.billAmount,
+          itemSummary: '',
+          payment: null,
+        });
+      }
+    });
+    return list;
+  }, [receiptCandidates, selectedReceiptIds, linkedReceipts]);
+
+  const toggleReceipt = (id: string) => {
+    setSelectedReceiptIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
 
   const handleUpload = async (file: File, target: 'bill' | 'screenshot' | 'invoice', billIndex?: number) => {
     try {
       const item = await apiClient.uploadFile(file);
+      const fileId = pickFileId(item);
+      if (!fileId) throw new Error('上传返回缺少文件标识');
       if (target === 'bill' && billIndex != null) {
         setBills((prev) =>
-          prev.map((b, i) => (i === billIndex ? { ...b, billFileId: item.id } : b)),
+          prev.map((b, i) => (i === billIndex ? { ...b, billFileId: fileId } : b)),
         );
       } else if (target === 'screenshot') {
-        setAttachments((prev) => [...prev, { type: 'SCREENSHOT', fileId: item.id }]);
+        setAttachments((prev) => [...prev, { type: 'SCREENSHOT', fileId }]);
       } else if (target === 'invoice') {
-        setAttachments((prev) => [...prev, { type: 'INVOICE', fileId: item.id }]);
+        setAttachments((prev) => [...prev, { type: 'INVOICE', fileId }]);
       }
       toast.success('上传成功');
     } catch (e: any) {
@@ -203,6 +345,10 @@ export function PaymentForm({ open, onOpenChange, mode, record, onSuccess }: Pay
       const cleanAttachments = attachments.filter((a) => a.fileId);
       if (cleanBills.length) dto.bills = cleanBills;
       if (cleanAttachments.length) dto.attachments = cleanAttachments;
+      // 关联入库单：勾选结果全量提交（清空即解除关联）
+      if (receiverType === 'SUPPLIER' || receiverType === 'CONSUMABLE_SUPPLIER') {
+        dto.purchaseReceiptIds = selectedReceiptIds.filter(Boolean);
+      }
 
       if (mode === 'create') {
         await apiClient.paymentCreate(dto);
@@ -303,7 +449,14 @@ export function PaymentForm({ open, onOpenChange, mode, record, onSuccess }: Pay
           <SectionTitle>收款方</SectionTitle>
           <div className="space-y-1">
             <Label>收款方类型</Label>
-            <Select value={receiverType} onValueChange={setReceiverType}>
+            <Select
+              value={receiverType}
+              onValueChange={(v) => {
+                setReceiverType(v);
+                // 换收款方 → 原有勾选不再适用
+                setSelectedReceiptIds([]);
+              }}
+            >
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="SUPPLIER">供应商</SelectItem>
@@ -315,7 +468,13 @@ export function PaymentForm({ open, onOpenChange, mode, record, onSuccess }: Pay
           {receiverType === 'SUPPLIER' && (
             <div className="space-y-1">
               <Label>选择供应商</Label>
-              <Select value={supplierId} onValueChange={setSupplierId}>
+              <Select
+                value={supplierId}
+                onValueChange={(v) => {
+                  setSupplierId(v);
+                  setSelectedReceiptIds([]);
+                }}
+              >
                 <SelectTrigger><SelectValue placeholder="选择供应商" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">请选择</SelectItem>
@@ -329,7 +488,13 @@ export function PaymentForm({ open, onOpenChange, mode, record, onSuccess }: Pay
           {receiverType === 'CONSUMABLE_SUPPLIER' && (
             <div className="space-y-1">
               <Label>选择耗材供应商</Label>
-              <Select value={consumableSupplierId} onValueChange={setConsumableSupplierId}>
+              <Select
+                value={consumableSupplierId}
+                onValueChange={(v) => {
+                  setConsumableSupplierId(v);
+                  setSelectedReceiptIds([]);
+                }}
+              >
                 <SelectTrigger><SelectValue placeholder="选择耗材供应商" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">请选择</SelectItem>
@@ -345,6 +510,83 @@ export function PaymentForm({ open, onOpenChange, mode, record, onSuccess }: Pay
               <Label>自定义收款方名称</Label>
               <Input value={customReceiverName} onChange={(e) => setCustomReceiverName(e.target.value)} placeholder="临时合作收款方名称" />
             </div>
+          )}
+
+          {/* 关联入库单（多选，按收款方筛选候选） */}
+          {receiptKey && (
+            <>
+              <SectionTitle>关联入库单</SectionTitle>
+              <div className="col-span-2 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    className="w-64"
+                    placeholder="按入库单号/票据号搜索"
+                    value={receiptKeyword}
+                    onChange={(e) => setReceiptKeyword(e.target.value)}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    <Link2 className="mr-1 inline h-3 w-3" />
+                    已选 {selectedReceiptIds.length} 张入库单
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    已结清的入库单不会出现在候选中
+                  </span>
+                </div>
+                <div className="max-h-64 overflow-y-auto rounded-lg border border-border">
+                  {receiptsLoading ? (
+                    <div className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" /> 正在加载候选入库单...
+                    </div>
+                  ) : displayReceipts.length === 0 ? (
+                    <div className="px-3 py-4 text-sm text-muted-foreground">
+                      该供应商没有待付款的入库单
+                    </div>
+                  ) : (
+                    displayReceipts.map((c) => {
+                      const checked = selectedReceiptIds.includes(c.id);
+                      return (
+                        <div
+                          key={c.id}
+                          className="flex cursor-pointer items-start gap-3 border-b border-border px-3 py-2 transition-colors duration-200 last:border-b-0 hover:bg-[#2e2e2e]"
+                          onClick={() => toggleReceipt(c.id)}
+                        >
+                          <Checkbox
+                            checked={checked}
+                            className="mt-0.5"
+                            onClick={(e) => e.stopPropagation()}
+                            onCheckedChange={() => toggleReceipt(c.id)}
+                          />
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                              <span className="font-medium">{c.receiptNo}</span>
+                              <span className="text-muted-foreground">
+                                {formatDateTime(c.receiptTime)}
+                              </span>
+                              <span className="text-muted-foreground">
+                                票据号 {c.billNo || '-'}
+                              </span>
+                              <span>货款 {receiptMoney(c.billAmount)}</span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {RECEIPT_PAYMENT_LABEL[c.payment?.status || ''] ||
+                                '打款状态未知'}
+                              {c.payment?.paidAmount
+                                ? ` · 已付 ${receiptMoney(c.payment.paidAmount)}`
+                                : ''}
+                            </div>
+                            {c.itemSummary && (
+                              <div className="truncate text-xs text-muted-foreground">
+                                {c.itemSummary}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </>
           )}
 
           {/* 开票与状态 */}
@@ -450,9 +692,15 @@ export function PaymentForm({ open, onOpenChange, mode, record, onSuccess }: Pay
                   onChange={async (e) => {
                     const f = e.target.files?.[0];
                     if (!f) return;
-                    const item = await apiClient.uploadFile(f);
-                    setAttachments((prev) => prev.map((x, i) => (i === idx ? { ...x, fileId: item.id } : x)));
-                    toast.success('上传成功');
+                    try {
+                      const item = await apiClient.uploadFile(f);
+                      const fileId = pickFileId(item);
+                      if (!fileId) throw new Error('上传返回缺少文件标识');
+                      setAttachments((prev) => prev.map((x, i) => (i === idx ? { ...x, fileId } : x)));
+                      toast.success('上传成功');
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : '上传失败');
+                    }
                   }}
                 />
                 <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById(`att-file-${idx}`)?.click()}>

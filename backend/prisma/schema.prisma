@@ -55,6 +55,7 @@ model User {
   numberCheckBatches     NumberCheckBatch[]
   numberCheckRecords     NumberCheckRecord[]
   paymentPayerRecords    PaymentRecord[]     @relation("PaymentPayer")
+  purchaseReceiptsChecked PurchaseReceipt[]  @relation("PurchaseReceiptChecker")
 
   @@index([email])
   @@index([username])
@@ -182,6 +183,7 @@ model File {
   numberCheckBatches NumberCheckBatch[]
   paymentBills       PaymentBill[]       @relation("PaymentBillFile")
   paymentAttachments PaymentAttachment[] @relation("PaymentAttachmentFile")
+  purchaseReceiptImages PurchaseReceiptImage[] @relation("PurchaseReceiptImageFile")
 
   @@index([folderId])
   @@index([uploadedBy])
@@ -504,6 +506,7 @@ model ConsumableSupplier {
   updatedBy        String?           @map("updated_by") @db.Uuid
   consumablePrices ConsumablePrice[]
   paymentRecords   PaymentRecord[]
+  purchaseReceiptItems PurchaseReceiptItem[]
 
   @@index([createdAt])
   @@index([deletedAt])
@@ -529,6 +532,7 @@ model Consumable {
   remark                     String?
   consumablePrices           ConsumablePrice[]
   finishedProductConsumables FinishedProductConsumable[]
+  purchaseReceiptItems       PurchaseReceiptItem[]
 
   @@index([category])
   @@index([createdAt])
@@ -1010,6 +1014,7 @@ model Product {
   pricingMode      PricingMode       @default(UNIT) @map("pricing_mode")
   finishedProducts FinishedProduct[]
   supplierProducts SupplierProduct[]
+  purchaseReceiptItems PurchaseReceiptItem[]
 
   @@index([code])
   @@index([createdAt])
@@ -1319,6 +1324,7 @@ model SupplierProduct {
   finishedProducts FinishedProduct[]
   product          Product           @relation(fields: [productId], references: [id])
   supplier         Supplier          @relation(fields: [supplierId], references: [id])
+  purchaseReceiptItems PurchaseReceiptItem[]
 
   @@unique([supplierId, productId, styleName])
   @@index([createdAt])
@@ -1347,6 +1353,7 @@ model Supplier {
   deletedAt        DateTime?         @map("deleted_at")
   supplierProducts SupplierProduct[]
   paymentRecords    PaymentRecord[]
+  purchaseReceiptItems PurchaseReceiptItem[]
 
   @@index([createdAt])
   @@index([deletedAt])
@@ -2018,6 +2025,7 @@ model PaymentRecord {
   consumableSupplier ConsumableSupplier? @relation(fields: [consumableSupplierId], references: [id], onDelete: SetNull)
   bills              PaymentBill[]
   attachments        PaymentAttachment[]
+  purchaseReceiptLinks PaymentRecordPurchaseReceipt[]
 
   @@index([paymentTime])
   @@index([paymentType])
@@ -2128,4 +2136,129 @@ enum PaymentAttachmentType {
   INVOICE
 
   @@map("payment_attachment_type")
+}
+
+// ==================== 进货入库记录模块 ====================
+
+enum PurchaseItemType {
+  PRODUCT
+  CONSUMABLE
+  OTHER
+
+  @@map("purchase_item_type")
+}
+
+enum PurchaseImageType {
+  BILL
+  GOODS
+
+  @@map("purchase_image_type")
+}
+
+enum PurchaseBillNoSource {
+  AI
+  MANUAL
+  AUTO_NO_PAPER
+  NONE
+
+  @@map("purchase_bill_no_source")
+}
+
+model PurchaseReceipt {
+  id           String               @id @default(uuid()) @db.Uuid
+  receiptNo    String               @unique @map("receipt_no") @db.VarChar(50)
+  receiptTime  DateTime             @map("receipt_time")
+  billNo       String?              @map("bill_no") @db.VarChar(100)
+  billNoSource PurchaseBillNoSource @default(NONE) @map("bill_no_source")
+  billAmount   Decimal?             @map("bill_amount") @db.Decimal(14, 2)
+  isAccurate   Boolean              @default(true) @map("is_accurate")
+  remark       String?
+  checkerId    String               @map("checker_id")
+  createdBy    String?              @map("created_by")
+  updatedBy    String?              @map("updated_by")
+  createdAt    DateTime             @default(now()) @map("created_at")
+  updatedAt    DateTime             @updatedAt @map("updated_at")
+  deletedAt    DateTime?            @map("deleted_at")
+
+  checker      User                          @relation("PurchaseReceiptChecker", fields: [checkerId], references: [id], onDelete: Restrict)
+  items        PurchaseReceiptItem[]
+  images       PurchaseReceiptImage[]
+  paymentLinks PaymentRecordPurchaseReceipt[]
+
+  @@index([receiptTime])
+  @@index([billNo])
+  @@index([checkerId])
+  @@index([createdBy])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("purchase_receipts")
+}
+
+model PurchaseReceiptItem {
+  id                   String            @id @default(uuid()) @db.Uuid
+  receiptId            String            @map("receipt_id") @db.Uuid
+  itemType             PurchaseItemType  @map("item_type")
+  sortOrder            Int               @default(0) @map("sort_order")
+  productId            String?           @map("product_id") @db.Uuid
+  supplierId           String?           @map("supplier_id") @db.Uuid
+  supplierProductId    String?           @map("supplier_product_id") @db.Uuid
+  consumableId         String?           @map("consumable_id") @db.Uuid
+  consumableSupplierId String?           @map("consumable_supplier_id") @db.Uuid
+  itemName             String            @map("item_name") @db.VarChar(200)
+  supplierName         String?           @map("supplier_name") @db.VarChar(200)
+  specName             String?           @map("spec_name") @db.VarChar(200)
+  quantityText         String            @map("quantity_text") @db.VarChar(200)
+  remark               String?
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+
+  receipt            PurchaseReceipt    @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  product            Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
+  supplier           Supplier?          @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierProduct    SupplierProduct?   @relation(fields: [supplierProductId], references: [id], onDelete: SetNull)
+  consumable         Consumable?        @relation(fields: [consumableId], references: [id], onDelete: SetNull)
+  consumableSupplier ConsumableSupplier? @relation(fields: [consumableSupplierId], references: [id], onDelete: SetNull)
+  images             PurchaseReceiptImage[]
+
+  @@index([receiptId])
+  @@index([productId])
+  @@index([supplierId])
+  @@index([consumableId])
+  @@index([consumableSupplierId])
+  @@index([itemType])
+  @@map("purchase_receipt_items")
+}
+
+model PurchaseReceiptImage {
+  id        String             @id @default(uuid()) @db.Uuid
+  receiptId String             @map("receipt_id") @db.Uuid
+  itemId    String?            @map("item_id") @db.Uuid
+  fileId    String             @map("file_id")
+  type      PurchaseImageType
+  sortOrder Int                @default(0) @map("sort_order")
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  receipt PurchaseReceipt     @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  item    PurchaseReceiptItem? @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  file    File                @relation("PurchaseReceiptImageFile", fields: [fileId], references: [id], onDelete: Restrict)
+
+  @@index([receiptId])
+  @@index([itemId])
+  @@index([fileId])
+  @@index([type])
+  @@map("purchase_receipt_images")
+}
+
+model PaymentRecordPurchaseReceipt {
+  paymentRecordId   String   @map("payment_record_id") @db.Uuid
+  purchaseReceiptId String   @map("purchase_receipt_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+  createdBy         String?  @map("created_by")
+
+  paymentRecord   PaymentRecord   @relation(fields: [paymentRecordId], references: [id], onDelete: Cascade)
+  purchaseReceipt PurchaseReceipt @relation(fields: [purchaseReceiptId], references: [id], onDelete: Cascade)
+
+  @@id([paymentRecordId, purchaseReceiptId])
+  @@index([purchaseReceiptId])
+  @@map("payment_record_purchase_receipts")
 }

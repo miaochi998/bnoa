@@ -4198,6 +4198,128 @@ class ApiClient {
       cd.match(/filename=["']?([^"'\s;]+)["']?/i);
     return { blob, filename: mm ? decodeURIComponent(mm[1].trim()) : 'payments.xlsx' };
   }
+
+  // ==================== 进货入库记录 ====================
+
+  async purchaseReceiptList(
+    filter: Record<string, any>,
+  ): Promise<{ data: any[]; meta: any }> {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(filter)) {
+      if (v !== undefined && v !== null && v !== '') q.append(k, String(v));
+    }
+    const r = (await this.request<any>(
+      `/business/purchase-receipts?${q.toString()}`,
+    )) as any;
+    return {
+      data: r.data || [],
+      meta: r.meta || { total: 0, page: 1, limit: 20, totalPages: 0 },
+    };
+  }
+
+  async purchaseReceiptDetail(id: string): Promise<any> {
+    const r = await this.request<any>(`/business/purchase-receipts/${id}`);
+    return r.data;
+  }
+
+  async purchaseReceiptCreate(dto: any): Promise<any> {
+    const r = await this.request<any>('/business/purchase-receipts', {
+      method: 'POST',
+      body: JSON.stringify(dto),
+    });
+    return r.data;
+  }
+
+  async purchaseReceiptUpdate(id: string, dto: any): Promise<any> {
+    const r = await this.request<any>(`/business/purchase-receipts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(dto),
+    });
+    return r.data;
+  }
+
+  async purchaseReceiptDelete(id: string): Promise<void> {
+    await this.request<void>(`/business/purchase-receipts/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /** 导出入库记录（previewBaseUrl 由调用方传 getApiBaseUrl()，保证照片链接可用） */
+  async purchaseReceiptExport(
+    filter: Record<string, any>,
+  ): Promise<{ blob: Blob; filename: string }> {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(filter)) {
+      if (v !== undefined && v !== null && v !== '') q.append(k, String(v));
+    }
+    const { blob, headers } = await this.getBlob(
+      `/business/purchase-receipts/export?${q.toString()}`,
+    );
+    const cd = headers.get('content-disposition') || '';
+    const mm =
+      cd.match(/filename\*?=(?:UTF-8'')?["']?([^"'\s;]+)["']?/i) ??
+      cd.match(/filename=["']?([^"'\s;]+)["']?/i);
+    return {
+      blob,
+      filename: mm ? decodeURIComponent(mm[1].trim()) : 'purchase-receipts.xlsx',
+    };
+  }
+
+  /** 付款记录「关联入库单」候选（已结清的不返回） */
+  async purchaseReceiptForPayment(params: {
+    supplierType: 'SUPPLIER' | 'CONSUMABLE_SUPPLIER';
+    supplierId: string;
+    keyword?: string;
+    limit?: number;
+  }): Promise<any[]> {
+    const q = new URLSearchParams();
+    q.append('supplierType', params.supplierType);
+    q.append('supplierId', params.supplierId);
+    if (params.keyword) q.append('keyword', params.keyword);
+    if (params.limit) q.append('limit', String(params.limit));
+    const r = await this.request<any>(
+      `/business/purchase-receipts/for-payment?${q.toString()}`,
+    );
+    return r.data || [];
+  }
+
+  async purchaseReceiptNextBillNo(): Promise<{ billNo: string }> {
+    const r = await this.request<any>(
+      '/business/purchase-receipts/next-bill-no',
+    );
+    return r.data || { billNo: '' };
+  }
+
+  /**
+   * AI 识别发货单票据号（可选增强）
+   * available=false 表示未配置可用模型/Key，调用方应静默跳过识别。
+   */
+  async purchaseReceiptRecognizeBill(fileId: string): Promise<{
+    available: boolean;
+    billNo: string | null;
+    raw?: string;
+    reason?: string;
+    model?: string;
+  }> {
+    const r = await this.request<any>(
+      '/business/purchase-receipts/recognize-bill',
+      { method: 'POST', body: JSON.stringify({ fileId }) },
+    );
+    return r.data || { available: false, billNo: null };
+  }
+
+  async purchaseReceiptCheckBillNo(dto: {
+    billNo: string;
+    supplierId?: string;
+    consumableSupplierId?: string;
+    excludeId?: string;
+  }): Promise<{ exists: boolean; records: any[] }> {
+    const r = await this.request<any>(
+      '/business/purchase-receipts/check-bill-no',
+      { method: 'POST', body: JSON.stringify(dto) },
+    );
+    return r.data || { exists: false, records: [] };
+  }
 }
 
 export const apiClient = new ApiClient();
