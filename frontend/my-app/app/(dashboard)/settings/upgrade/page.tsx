@@ -243,6 +243,9 @@ function UpgradeManagementTab() {
   // 升级进度状态
   const [upgradeProgress, setUpgradeProgress] = useState<UpgradeProgressState | null>(null);
   const upgradeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 升级开始的绝对时间戳。放在 ref 上，使计时器能在"点击瞬间"启动，
+  // 而不必等到 executeUpgrade 返回（见下方 startUpgradeTimer 的说明）。
+  const upgradeStartedAtRef = useRef<number>(0);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadCurrentVersion = useCallback(async () => {
@@ -293,30 +296,44 @@ function UpgradeManagementTab() {
     }
   };
 
+  // ⚠️ 已用时间用「起始时间戳相减」计算，而不是 `elapsedSeconds += 1` 累加：
+  // 浏览器对**后台标签页**的 setInterval 有节流，累加会让计时严重偏慢
+  // （生产实测：界面显示 10s，实际已过 110s）。
+  const upgradeElapsed = useCallback(
+    () =>
+      upgradeStartedAtRef.current
+        ? Math.round((Date.now() - upgradeStartedAtRef.current) / 1000)
+        : 0,
+    [],
+  );
+
+  // ⚠️ 计时器必须在**用户点击升级的瞬间**启动。
+  // 历史教训：它原先写在 startPolling() 内，而 startPolling() 要等
+  // `await executeUpgrade()` 返回后才被调用 —— 该请求在**预检（含预拉取镜像）
+  // 期间会阻塞数分钟**（实测 3–5 分钟），于是计时器迟迟不启动，
+  // 界面一直显示"已用时间 0s"，让用户误以为卡住（真实进度其实正常）。
+  const startUpgradeTimer = useCallback(() => {
+    upgradeStartedAtRef.current = Date.now();
+    if (upgradeTimerRef.current) clearInterval(upgradeTimerRef.current);
+    upgradeTimerRef.current = setInterval(() => {
+      const elapsedSeconds = upgradeElapsed();
+      setUpgradeProgress((prev) =>
+        prev ? { ...prev, elapsedSeconds } : prev
+      );
+    }, 1000);
+  }, [upgradeElapsed]);
+
   // 轮询检测后端是否恢复
   const startPolling = (
     targetVersion: string,
     versionFrom: string,
     upgradeId?: string,
   ) => {
-    // ⚠️ 已用时间用「起始时间戳相减」计算，而不是 `elapsedSeconds += 1` 累加：
-    // 浏览器对**后台标签页**的 setInterval 有节流，累加会让计时严重偏慢
-    // （生产实测：界面显示 10s，实际已过 110s）。
-    const startedAt = Date.now();
-    const elapsed = () => Math.round((Date.now() - startedAt) / 1000);
-
     // 生产实测：Portainer 需先拉取镜像再重建，整体可达 5 分钟以上；
     // 冷启动（镜像未预拉取）时后端约 143s + 前端约 92s，再叠加重建 1–2 分钟，
     // 因此把等待上限放宽到 15 分钟（后端自身的判定超时为 10 分钟）。
     const MAX_WAIT_SECONDS = 900;
-
-    // 计时器：每秒刷新已用时间
-    upgradeTimerRef.current = setInterval(() => {
-      const elapsedSeconds = elapsed();
-      setUpgradeProgress((prev) =>
-        prev ? { ...prev, elapsedSeconds } : prev
-      );
-    }, 1000);
+    // 计时器已在 handleExecuteUpgrade()（点击瞬间）启动，此处不再启动，避免重复。
 
     // 轮询器：每5秒查询一次真实状态
     const poll = async () => {
@@ -399,7 +416,7 @@ function UpgradeManagementTab() {
       // 超时判断：**先做最后一次核对再下结论**。
       // 历史教训：升级其实已成功（容器镜像已是目标版本），但前端因查不到记录而
       // 在超时后武断报"升级异常"，把成功误报成失败。
-      if (elapsed() >= MAX_WAIT_SECONDS) {
+      if (upgradeElapsed() >= MAX_WAIT_SECONDS) {
         cleanup();
         try {
           const final = await upgradeAPI.getUpgradeProgress(upgradeId);
@@ -480,14 +497,17 @@ function UpgradeManagementTab() {
     const versionFrom = currentVersion?.version || "unknown";
     const versionTo = updateInfo.latestVersion;
 
-    // 立即显示升级进度面板
+    // 立即显示升级进度面板，并**同时启动计时器**：
+    // executeUpgrade 在预检（含镜像预拉取）期间会阻塞数分钟，
+    // 若等它返回再计时，这段时间界面会一直显示"已用时间 0s"。
     setUpgradeProgress({
       phase: "sending",
-      message: "正在向后端发送升级请求...",
+      message: "正在向后端发送升级请求（含镜像预检，可能需要数分钟）...",
       elapsedSeconds: 0,
       versionFrom,
       versionTo,
     });
+    startUpgradeTimer();
 
     // 记录本次升级记录 id：轮询时带上它才能准确追踪这条记录。
     // （不带 id 时后端只返回"进行中"的记录，升级一完成就会变成"暂无升级记录"）
