@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+#
+# pre-commit：阻止敏感文件被提交到本仓库
+#
+# 背景：本仓库（miaochi998/bnoa）是 **公开仓库**，任何被提交的文件都会公开。
+#       历史上有过"文档/财务表/生产库备份被复制进工作区"的险情（靠 .gitignore 侥幸挡住），
+#       本 hook 是**不依赖人记得住规则**的第二道防线。
+#
+# 生效方式（每个 clone 只需执行一次）：
+#     git config core.hooksPath scripts/git-hooks
+#
+# 如确认某文件无敏感内容且必须提交，可临时绕过：
+#     git commit --no-verify
+#
+set -uo pipefail
+
+# 只检查将要被提交的文件（新增/修改/改名）
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$STAGED" ] && exit 0
+
+# ── 白名单：这些虽然命中下面的敏感模式，但属于"代码的一部分"，必须允许 ──
+ALLOW='(^|/)\.env\.example$|(^|/)\.env\.production\.example$|^backend/prisma/migrations/.*\.sql$|^backend/prisma/[^/]+\.sql$'
+
+# ── 敏感模式：命中即拦截 ──
+#   docs/ backups/ 财务/          内部文档与财务资料
+#   node_modules/ dist/ .next/    依赖与构建产物
+#   logs/ uploads/                日志与上传文件
+#   .env / .env.local             真实凭据
+#   *.sql *.dump                  数据库导出（迁移 SQL 已在白名单放行）
+#   *.xlsx *.xls                  表格（常含业务/财务数据）
+#   PROJECT_MEMORY.md .mcp.json   本地记忆与工具配置
+BLOCK='(^|/)docs/|(^|/)backups/|(^|/)财务/|(^|/)(node_modules|dist|\.next|out|logs|uploads|coverage)/|(^|/)\.env$|(^|/)\.env\.local$|(^|/)\.env\..*\.local$|\.sql$|\.dump$|\.xlsx$|\.xls$|(^|/)PROJECT_MEMORY\.md$|(^|/)\.mcp\.json$'
+
+VIOLATIONS=$(printf '%s\n' "$STAGED" | grep -vE "$ALLOW" | grep -E "$BLOCK" || true)
+
+if [ -n "$VIOLATIONS" ]; then
+  echo ""
+  echo "❌ 提交被拦截：检测到可能敏感的文件（本仓库是公开仓库）"
+  echo ""
+  printf '%s\n' "$VIOLATIONS" | sed 's/^/     - /'
+  echo ""
+  echo "  公开仓库不得包含：内部文档(docs/)、财务资料(财务/)、数据备份(backups/*.sql)、"
+  echo "  真实凭据(.env)、依赖与构建产物(node_modules/dist/.next)、日志与上传件。"
+  echo ""
+  echo "  处理方式："
+  echo "    1) 把这些文件移出仓库目录（推荐，文档/资料请放在仓库之外）；"
+  echo "    2) 或确认其应在 .gitignore 中，执行 git rm --cached <文件> 使其脱离跟踪；"
+  echo "    3) 若确认无敏感内容且必须提交：git commit --no-verify"
+  echo ""
+  exit 1
+fi
+
+exit 0
