@@ -23,6 +23,7 @@ import {
   HeadBucketCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 import {
   IStorageService,
   IMultipartUploadService,
@@ -34,6 +35,28 @@ import {
   UploadPart,
 } from './interfaces/storage.interface';
 import { ConfigService as SystemConfigService } from '../config/config.service';
+
+/**
+ * S3 请求超时默认值（毫秒）
+ *
+ * ⚠️ 为什么必须显式配置：
+ * AWS SDK v3 默认 `requestTimeout = 0` = 不超时；一旦服务端（RUSTFS）不响应，
+ * `s3Client.send()` 会**永久挂起**——既不返回也不抛错，调用方 try/catch 完全失效
+ * （2026-10 备份卡在 running 18 小时的根因）。
+ */
+const DEFAULT_CONNECTION_TIMEOUT_MS = 5_000;
+/** 单个请求（含响应）的最大时长；本地千兆网内 1.5MB 备份上传 <<1s，2 分钟留足余量 */
+const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+/** 失败重试次数（含首次），对付偶发抖动；最坏 3×120s ≈ 6 分钟 < 备份整体超时 10 分钟 */
+const DEFAULT_MAX_ATTEMPTS = 3;
+
+/** 读取正整数环境变量，非法/缺省时回退默认值 */
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 /**
  * 存储服务
@@ -118,10 +141,38 @@ export class StorageService implements IStorageService, IMultipartUploadService,
 
   /**
    * 初始化 S3 客户端
+   *
+   * ⚠️ 必须配置超时：AWS SDK v3 默认无超时（requestTimeout=0 表示不限时），
+   * 服务端不响应时 send() 会永久挂起，表现为「备份一直 running」。
+   * 具体写法见 initializeS3Client 内部注释。
    */
   private initializeS3Client(): void {
     const protocol = this.config.useSSL ? 'https' : 'http';
     const endpoint = `${protocol}://${this.config.endpoint}:${this.config.port}`;
+
+    const connectionTimeout = readPositiveIntEnv(
+      'RUSTFS_CONNECTION_TIMEOUT_MS',
+      DEFAULT_CONNECTION_TIMEOUT_MS,
+    );
+    const requestTimeout = readPositiveIntEnv(
+      'RUSTFS_REQUEST_TIMEOUT_MS',
+      DEFAULT_REQUEST_TIMEOUT_MS,
+    );
+    const maxAttempts = readPositiveIntEnv(
+      'RUSTFS_MAX_ATTEMPTS',
+      DEFAULT_MAX_ATTEMPTS,
+    );
+
+    // ⚠️ smithy 的 requestTimeout 有一个坑：**默认只在超时时打 warning，不中断请求**
+    // （见 @smithy/types 的 NodeHttpHandlerOptions.throwOnRequestTimeout 注释），
+    // 因此必须显式 throwOnRequestTimeout: true 才真正抛错、让上层 catch 生效。
+    // socketTimeout 作为第二道保险：socket 空闲超时同样会关闭连接并报错。
+    const requestHandler = new NodeHttpHandler({
+      connectionTimeout,
+      requestTimeout,
+      throwOnRequestTimeout: true,
+      socketTimeout: requestTimeout,
+    });
 
     this.s3Client = new S3Client({
       endpoint,
@@ -131,9 +182,13 @@ export class StorageService implements IStorageService, IMultipartUploadService,
         secretAccessKey: this.config.secretKey,
       },
       forcePathStyle: true, // RustFS 需要路径样式
+      maxAttempts,
+      requestHandler,
     });
 
-    this.logger.log('S3 客户端初始化完成');
+    this.logger.log(
+      `S3 客户端初始化完成 (connectionTimeout=${connectionTimeout}ms, requestTimeout=${requestTimeout}ms, maxAttempts=${maxAttempts})`,
+    );
   }
 
   /**

@@ -1,4 +1,10 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  OnApplicationBootstrap,
+} from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { BackupConfigService } from './backup-config.service';
 import { LocalStorageService } from '../storage/local-storage.service';
@@ -12,6 +18,31 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 
 const execAsync = promisify(exec);
+
+/**
+ * 备份整体超时（毫秒），可用环境变量 BACKUP_TIMEOUT_MS 覆盖。
+ *
+ * 目的：任何一步（pg_dump / tar / 读文件 / S3 上传）卡死时，也必须在有界时间内
+ * 把 backup_logs 写成 failed，**杜绝永远 running 的僵尸记录**。
+ */
+const DEFAULT_BACKUP_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
+ * 启动清理僵尸 running 记录的阈值（毫秒），可用 BACKUP_STALE_TIMEOUT_MS 覆盖。
+ * 必须显著大于 DEFAULT_BACKUP_TIMEOUT_MS，避免误伤正在进行的备份。
+ */
+const DEFAULT_STALE_RUNNING_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+
+/** 僵尸记录清理后的 errorMessage（与正常运行期超时的文案区分） */
+const STALE_RUNNING_ERROR_MESSAGE = '超时中断（服务重启后清理）';
+
+/** 读取正整数环境变量，非法/缺省时回退默认值 */
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 export interface BackupStats {
   totalCount: number;
@@ -28,7 +59,7 @@ export interface BackupDownloadResult {
 }
 
 @Injectable()
-export class BackupService {
+export class BackupService implements OnApplicationBootstrap {
   private readonly logger = new Logger(BackupService.name);
 
   constructor(
@@ -37,6 +68,67 @@ export class BackupService {
     private readonly localStorage: LocalStorageService,
     private readonly storageService: StorageService,
   ) {}
+
+  /**
+   * 启动时清理僵尸 running 备份记录
+   *
+   * 背景：进程被容器重启/升级清理时，正在跑的备份会永远停在 running
+   * （2026-10 两台 OA 都留下了 running 18h 的记录）。参照 upgrade 模块
+   * cleanupStaleUpgrades 的做法：延迟 3s 异步执行，失败只记日志、不影响启动。
+   */
+  onApplicationBootstrap(): void {
+    setTimeout(() => {
+      this.cleanupStaleRunningBackups().catch((err) =>
+        this.logger.error(`清理僵尸备份记录失败: ${err?.message}`),
+      );
+    }, 3000);
+  }
+
+  /**
+   * 把「超过阈值仍未结束」的 running 备份记录标记为 failed。
+   *
+   * 为什么不会误伤正在运行的备份：判据是 **createdAt 早于 now - 阈值（默认 2 小时）**，
+   * 而备份正常耗时是秒级、异常也最多被 BACKUP_TIMEOUT_MS（默认 10 分钟）终结。
+   * 2 小时 > 10 分钟 > 实际耗时，任何"刚创建不久"的记录都不会被命中。
+   */
+  async cleanupStaleRunningBackups(): Promise<number> {
+    const staleMs = readPositiveIntEnv(
+      'BACKUP_STALE_TIMEOUT_MS',
+      DEFAULT_STALE_RUNNING_TIMEOUT_MS,
+    );
+    const cutoff = new Date(Date.now() - staleMs);
+
+    const stale = await this.prisma.backupLog.findMany({
+      where: { status: 'running', createdAt: { lt: cutoff } },
+      select: { id: true, createdAt: true },
+    });
+
+    if (stale.length === 0) {
+      this.logger.log('无超过阈值的僵尸备份记录');
+      return 0;
+    }
+
+    for (const record of stale) {
+      const durationMs = Date.now() - record.createdAt.getTime();
+      await this.prisma.backupLog.update({
+        where: { id: record.id },
+        data: {
+          status: 'failed',
+          errorMessage: STALE_RUNNING_ERROR_MESSAGE,
+          completedAt: new Date(),
+          durationMs,
+        },
+      });
+      this.logger.warn(
+        `已将僵尸备份记录标记为 failed: id=${record.id}, 已运行=${Math.round(durationMs / 60000)} 分钟`,
+      );
+    }
+
+    this.logger.warn(
+      `共清理 ${stale.length} 条僵尸 running 备份记录（阈值 ${Math.round(staleMs / 60000)} 分钟）`,
+    );
+    return stale.length;
+  }
 
   async createBackup(dto: CreateBackupDto, operatorId?: string, operatorIp?: string): Promise<any> {
     const config = await this.configService.getConfig();
@@ -73,7 +165,59 @@ export class BackupService {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const tempDir = path.join(require('os').tmpdir(), 'backups', backupLog.id);
 
-    try {
+    const timeoutMs = readPositiveIntEnv(
+      'BACKUP_TIMEOUT_MS',
+      DEFAULT_BACKUP_TIMEOUT_MS,
+    );
+    const timeoutMinutes = Math.max(1, Math.round(timeoutMs / 60000));
+    const timeoutMessage = `备份超时（超过 ${timeoutMinutes} 分钟未完成）`;
+    const shortId = backupLog.id.slice(0, 8);
+
+    // ---- 整体超时保护 ----
+    // 说明：exec(pg_dump/tar) 与 s3Client.send() 都无法强制取消，因此这里不是"中止"，
+    // 而是"到点即判定失败"：超时标志 timedOut 一置位，本次备份就绝不会再写 success，
+    // 由外层 catch 统一写 failed —— 杜绝僵尸 running 记录。
+    let timedOut = false;
+    let timeoutTimer: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutTimer = setTimeout(() => {
+        timedOut = true; // 先同步置位标志，再 reject
+        this.logger.error(
+          `[备份 ${shortId}] ${timeoutMessage}，即将标记为 failed`,
+        );
+        reject(new Error(timeoutMessage));
+      }, timeoutMs);
+    });
+
+    /** 关键节点自检：一旦整体已超时，立即中止后续流程（避免超时后仍写 success） */
+    const assertNotTimedOut = () => {
+      if (timedOut) throw new Error(timeoutMessage);
+    };
+
+    /** 写 failed 终态（失败也不抛，避免掩盖原始错误） */
+    const writeFailed = async (message: string) => {
+      try {
+        await this.prisma.backupLog.update({
+          where: { id: backupLog.id },
+          data: {
+            status: 'failed',
+            errorMessage: message,
+            completedAt: new Date(),
+            durationMs: Date.now() - startTime,
+          },
+        });
+      } catch (updateError: unknown) {
+        this.logger.error(
+          `[备份 ${shortId}] 写入 failed 状态失败: ${(updateError as Error)?.message}`,
+        );
+      }
+    };
+
+    this.logger.log(
+      `[备份 ${shortId}] 开始: type=${backupType}, trigger=${triggerType}, storage=${storageType}, contents=[${contentTypes.join(',')}], 超时上限=${timeoutMinutes} 分钟`,
+    );
+
+    const run = async () => {
       await fs.promises.mkdir(tempDir, { recursive: true });
 
       const backupFiles: string[] = [];
@@ -86,12 +230,18 @@ export class BackupService {
           backupFiles.push(dbResult.filePath);
           totalSize += dbResult.size;
           databaseChecksum = dbResult.checksum; // 保存数据库备份的 checksum
+          this.logger.log(
+            `[备份 ${shortId}] 数据库导出完成: ${dbResult.size} bytes, checksum=${dbResult.checksum}`,
+          );
         } else if (contentType === 'files') {
           const filesFile = await this.backupFiles(tempDir);
           if (filesFile) {
             backupFiles.push(filesFile);
             const stats = await fs.promises.stat(filesFile);
             totalSize += stats.size;
+            this.logger.log(
+              `[备份 ${shortId}] 上传文件打包完成: ${stats.size} bytes`,
+            );
           }
         }
       }
@@ -146,17 +296,32 @@ export class BackupService {
         }
         // 计算上传文件的 checksum
         finalChecksum = crypto.createHash('sha256').update(buffer).digest('hex');
+        this.logger.log(
+          `[备份 ${shortId}] 读取备份内容完成: ${buffer.length} bytes，准备上传 key=${key}`,
+        );
+        // 上传是最容易挂住的一步（RUSTFS 不响应时旧代码会永久卡住），上传前再自检一次
+        assertNotTimedOut();
+        this.logger.log(`[备份 ${shortId}] 开始上传到对象存储...`);
         await this.storageService.upload(buffer, key, 'application/octet-stream');
+        this.logger.log(`[备份 ${shortId}] 对象存储上传完成: ${key}`);
         storagePath = key;
       }
+
+      // 写 success 之前再自检：整体已超时则绝不写 success
+      assertNotTimedOut();
 
       await this.cleanupTempFiles(tempDir);
 
       // 如果是单数据库备份，优先使用数据库备份的 checksum；否则使用最终文件的 checksum
       const checksumToSave = isSingleDb ? (databaseChecksum || finalChecksum) : finalChecksum;
 
-      await this.prisma.backupLog.update({
-        where: { id: backupLog.id },
+      this.logger.log(
+        `[备份 ${shortId}] 写入成功状态: fileSize=${finalSize}, storagePath=${storagePath}`,
+      );
+
+      // 条件更新（where status='running'）：若已被超时路径标记为 failed，则不再写 success
+      const updated = await this.prisma.backupLog.updateMany({
+        where: { id: backupLog.id, status: 'running' },
         data: {
           status: 'success',
           storagePath,
@@ -167,6 +332,24 @@ export class BackupService {
         },
       });
 
+      if (updated.count === 0) {
+        this.logger.warn(
+          `[备份 ${shortId}] 状态已被其他流程终结，放弃写 success`,
+        );
+        throw new Error(
+          timedOut ? timeoutMessage : '备份状态已被终结，放弃写 success',
+        );
+      }
+
+      // 极端竞态兜底：写 success 与超时定时器几乎同时触发 → 以超时为准回写 failed
+      if (timedOut) {
+        this.logger.error(
+          `[备份 ${shortId}] success 与超时同时发生，以超时为准回写 failed`,
+        );
+        await writeFailed(timeoutMessage);
+        throw new Error(timeoutMessage);
+      }
+
       return {
         id: backupLog.id,
         status: 'success',
@@ -174,18 +357,39 @@ export class BackupService {
         fileSize: finalSize,
         storagePath,
       };
+    };
+
+    // 备份流程与超时 promise 赛跑：谁先结束谁决定终态
+    const runPromise = run();
+    try {
+      const result = await Promise.race([runPromise, timeoutPromise]);
+      this.logger.log(
+        `[备份 ${shortId}] 完成，耗时=${Date.now() - startTime}ms`,
+      );
+      return result;
     } catch (error) {
+      // 统一失败出口：无论超时还是异常都写 failed（幂等；写库失败只记日志，不掩盖原始错误）
+      const message = timedOut
+        ? timeoutMessage
+        : ((error as Error)?.message ?? String(error));
+      this.logger.error(`[备份 ${shortId}] 失败: ${message}`);
       await this.cleanupTempFiles(tempDir);
-      await this.prisma.backupLog.update({
-        where: { id: backupLog.id },
-        data: {
-          status: 'failed',
-          errorMessage: error.message,
-          completedAt: new Date(),
-          durationMs: Date.now() - startTime,
-        },
-      });
+      await writeFailed(message);
       throw error;
+    } finally {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      if (timedOut) {
+        // 超时后 run() 仍在后台收尾（exec / S3 请求无法取消）：
+        // 挂兜底 catch 防 unhandled rejection，并在其真正结束后再清一次临时目录，
+        // 避免后台流程重新落盘的半成品文件留在磁盘上。
+        void runPromise
+          .catch((err) =>
+            this.logger.warn(
+              `[备份 ${shortId}] 超时后台流程已结束: ${err?.message}`,
+            ),
+          )
+          .finally(() => this.cleanupTempFiles(tempDir));
+      }
     }
   }
 
