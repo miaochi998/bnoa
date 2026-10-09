@@ -62,13 +62,25 @@ export class DeepSeekService implements IAIService {
                 max_tokens: options?.maxTokens ?? 2000,
                 top_p: options?.topP ?? 0.9,
                 stream: false,
-            });
+                // 思考模式开关：DeepSeek 在 OpenAI 格式下用顶层字段
+                // `thinking: {type: 'enabled'|'disabled'}` 控制（默认 enabled）。
+                // 纯提取类任务（如识别票据号）设为 disabled 可显著降低输出 token 与耗时。
+                // 注：`extra_body` 是 Python SDK 的写法，node SDK 需直接放在请求体顶层。
+                ...(options?.thinking
+                    ? { thinking: { type: options.thinking } }
+                    : {}),
+            } as any);
 
             const choice = response.choices[0];
             const usage = response.usage;
 
             return {
-                content: choice?.message?.content || '',
+                // 推理模型（如 DeepSeek V4.1 Flash）会先输出 reasoning_content，
+                // 若正文为空（额度耗尽等）则回退使用思考内容，避免返回空串
+                content:
+                    choice?.message?.content ||
+                    (choice?.message as any)?.reasoning_content ||
+                    '',
                 model: response.model || modelId,
                 usage: usage
                     ? {

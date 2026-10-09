@@ -430,7 +430,11 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     return false;
   };
 
-  const renderMenuItem = (item: MenuItem, isChild = false) => {
+  const renderMenuItem = (
+    item: MenuItem,
+    isChild = false,
+    prevGroupLabel?: string,
+  ) => {
     const isActive = isMenuActive(item);
     const Icon = item.icon;
     const hasChildren = item.children && item.children.length > 0;
@@ -464,14 +468,25 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           </button>
           {!collapsed && isExpanded && (
             <div className="ml-4 mt-1 space-y-1 pl-2">
-              {item.children!.map(child => renderMenuItem(child, true))}
+              {item.children!.map((child, idx) =>
+                renderMenuItem(
+                  child,
+                  true,
+                  item.children![idx - 1]?.groupLabel,
+                ),
+              )}
             </div>
           )}
         </div>
       );
     }
 
-    if (isChild && item.groupLabel && !collapsed) {
+    if (
+      isChild &&
+      item.groupLabel &&
+      item.groupLabel !== prevGroupLabel &&
+      !collapsed
+    ) {
       return (
         <div key={item.href}>
           <div className="text-[11px] text-muted-foreground/50 px-2 pt-2.5 pb-1 tracking-wider">

@@ -79,7 +79,6 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
-    "@stagewise/toolbar": "^0.6.3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

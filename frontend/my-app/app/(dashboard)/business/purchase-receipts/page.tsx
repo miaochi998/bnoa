@@ -21,6 +21,7 @@ import {
   SearchableSelect,
   type SearchableOption,
 } from './components/PurchaseReceiptForm';
+import { DateRangePicker } from '@/components/ui/date-range-picker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -75,6 +76,7 @@ import { PurchaseReceiptForm } from './components/PurchaseReceiptForm';
 import {
   Download,
   Eye,
+  FileDigit,
   Loader2,
   PackageCheck,
   Pencil,
@@ -172,6 +174,14 @@ const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 const money = (n: number | null | undefined) =>
   n === null || n === undefined ? '-' : `¥${Number(n).toLocaleString()}`;
+
+function formatDate(value?: string | null): string {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
 
 function formatDateTime(value?: string | null): string {
   if (!value) return '-';
@@ -314,19 +324,17 @@ export default function PurchaseReceiptsPage() {
   const [itemType, setItemType] = useState('all');
   const [supplierId, setSupplierId] = useState('all');
   const [consumableSupplierId, setConsumableSupplierId] = useState('all');
-  const [checkerId, setCheckerId] = useState('all');
-  const [isAccurate, setIsAccurate] = useState('all');
   const [paymentStatus, setPaymentStatus] = useState('all');
   const [productId, setProductId] = useState('');
+  const [consumableId, setConsumableId] = useState('');
   const [billNo, setBillNo] = useState('');
   const [products, setProducts] = useState<SelectLite[]>([]);
+  const [consumables, setConsumables] = useState<SelectLite[]>([]);
 
   const [suppliers, setSuppliers] = useState<SelectLite[]>([]);
   const [consumableSuppliers, setConsumableSuppliers] = useState<SelectLite[]>(
     [],
   );
-  const [users, setUsers] = useState<UserLite[]>([]);
-
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
   const [editingRecord, setEditingRecord] = useState<ReceiptRow | null>(null);
@@ -361,9 +369,8 @@ export default function PurchaseReceiptsPage() {
     if (supplierId !== 'all') f.supplierId = supplierId;
     if (consumableSupplierId !== 'all')
       f.consumableSupplierId = consumableSupplierId;
-    if (checkerId !== 'all') f.checkerId = checkerId;
-    if (isAccurate !== 'all') f.isAccurate = isAccurate === 'true';
     if (paymentStatus !== 'all') f.paymentStatus = paymentStatus;
+    if (consumableId) f.consumableId = consumableId;
     if (productId) f.productId = productId;
     if (billNo.trim()) f.billNo = billNo.trim();
     return f;
@@ -376,10 +383,9 @@ export default function PurchaseReceiptsPage() {
     itemType,
     supplierId,
     consumableSupplierId,
-    checkerId,
-    isAccurate,
     paymentStatus,
     productId,
+    consumableId,
     billNo,
   ]);
 
@@ -408,16 +414,16 @@ export default function PurchaseReceiptsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [sup, cons, usr, prod] = await Promise.all([
+        const [sup, cons, prod, consu] = await Promise.all([
           apiClient.getSuppliersForSelect(),
           apiClient.getConsumableSuppliersForSelect(),
-          apiClient.getUsers({}, { page: 1, pageSize: 100 }),
           apiClient.getProducts({ page: 1, pageSize: 1000 }),
+          apiClient.getConsumables({ page: 1, pageSize: 1000 }),
         ]);
         setSuppliers((sup ?? []) as SelectLite[]);
         setConsumableSuppliers((cons ?? []) as SelectLite[]);
-        setUsers(((usr?.nodes ?? []) as UserLite[]) || []);
         setProducts(((prod?.list ?? []) as SelectLite[]) || []);
+        setConsumables(((consu?.list ?? []) as SelectLite[]) || []);
       } catch {
         // 静默，不阻断列表
       }
@@ -431,11 +437,20 @@ export default function PurchaseReceiptsPage() {
     setItemType('all');
     setSupplierId('all');
     setConsumableSupplierId('all');
-    setCheckerId('all');
-    setIsAccurate('all');
     setPaymentStatus('all');
     setProductId('');
+    setConsumableId('');
     setBillNo('');
+    setPagination((p) => ({ ...p, page: 1 }));
+  };
+
+  /** 切换货物类型：清空对应下游筛选，避免残留不匹配条件 */
+  const changeItemType = (v: string) => {
+    setItemType(v);
+    setSupplierId('all');
+    setConsumableSupplierId('all');
+    setProductId('');
+    setConsumableId('');
     setPagination((p) => ({ ...p, page: 1 }));
   };
 
@@ -568,162 +583,146 @@ export default function PurchaseReceiptsPage() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">筛选</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-3">
-          <div className="relative w-56">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              className="pl-8"
-              placeholder="搜索单号/票据号/物品/供应商/备注"
-              value={keyword}
-              onChange={(e) => {
-                setKeyword(e.target.value);
+        <CardContent className="space-y-3">
+          {/* 第一行：搜索（左） + 票据号（右） */}
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-10 pl-9"
+                placeholder="搜索单号 / 票据号 / 物品 / 供应商 / 备注"
+                value={keyword}
+                onChange={(e) => {
+                  setKeyword(e.target.value);
+                  setPagination((p) => ({ ...p, page: 1 }));
+                }}
+              />
+            </div>
+            <div className="relative min-w-0 flex-1">
+              <FileDigit className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-10 pl-9"
+                placeholder="按票据号查找"
+                value={billNo}
+                onChange={(e) => {
+                  setBillNo(e.target.value);
+                  setPagination((p) => ({ ...p, page: 1 }));
+                }}
+              />
+            </div>
+          </div>
+
+          {/* 第二行：货物类型 → 供应商/耗材供应商 → 产品/耗材 → 时间 */}
+          <div className="flex flex-wrap items-center gap-3">
+            <Select value={itemType} onValueChange={changeItemType}>
+              <SelectTrigger className="h-10 w-36">
+                <SelectValue placeholder="货物类型" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部货物</SelectItem>
+                <SelectItem value="PRODUCT">产品</SelectItem>
+                <SelectItem value="CONSUMABLE">耗材</SelectItem>
+                <SelectItem value="OTHER">其它</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {itemType === 'PRODUCT' && (
+              <>
+                <Select
+                  value={supplierId}
+                  onValueChange={changeFilter(setSupplierId)}
+                >
+                  <SelectTrigger className="h-10 w-48">
+                    <SelectValue placeholder="全部供应商" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部供应商</SelectItem>
+                    {suppliers.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name || s.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="w-52">
+                  <SearchableSelect
+                    value={productId}
+                    options={
+                      products.map((p) => ({
+                        value: p.id,
+                        label: p.name || p.id,
+                      })) as SearchableOption[]
+                    }
+                    allowClear
+                    placeholder="全部产品"
+                    searchPlaceholder="搜索产品名称"
+                    emptyText="无匹配产品"
+                    className="h-10"
+                    onChange={(v) => {
+                      setProductId(v);
+                      setPagination((p) => ({ ...p, page: 1 }));
+                    }}
+                  />
+                </div>
+              </>
+            )}
+
+            {itemType === 'CONSUMABLE' && (
+              <>
+                <Select
+                  value={consumableSupplierId}
+                  onValueChange={changeFilter(setConsumableSupplierId)}
+                >
+                  <SelectTrigger className="h-10 w-52">
+                    <SelectValue placeholder="全部耗材供应商" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部耗材供应商</SelectItem>
+                    {consumableSuppliers.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name || s.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="w-52">
+                  <SearchableSelect
+                    value={consumableId}
+                    options={
+                      consumables.map((c) => ({
+                        value: c.id,
+                        label: c.name || c.id,
+                      })) as SearchableOption[]
+                    }
+                    allowClear
+                    placeholder="全部耗材"
+                    searchPlaceholder="搜索耗材名称"
+                    emptyText="无匹配耗材"
+                    className="h-10"
+                    onChange={(v) => {
+                      setConsumableId(v);
+                      setPagination((p) => ({ ...p, page: 1 }));
+                    }}
+                  />
+                </div>
+              </>
+            )}
+
+            <DateRangePicker
+              className="h-10 w-[320px]"
+              startDate={startDate}
+              endDate={endDate}
+              onChange={(s, e) => {
+                setStartDate(s);
+                setEndDate(e);
                 setPagination((p) => ({ ...p, page: 1 }));
               }}
             />
+
+            <Button variant="ghost" className="h-10" onClick={resetFilters}>
+              重置
+            </Button>
           </div>
-
-          <div className="w-52">
-            <SearchableSelect
-              value={productId}
-              options={
-                products.map((p) => ({
-                  value: p.id,
-                  label: p.name || p.id,
-                })) as SearchableOption[]
-              }
-              allowClear
-              placeholder="入库产品（全部）"
-              searchPlaceholder="搜索产品名称"
-              emptyText="无匹配产品"
-              onChange={(v) => {
-                setProductId(v);
-                setPagination((p) => ({ ...p, page: 1 }));
-              }}
-            />
-          </div>
-
-          <Input
-            className="w-44"
-            placeholder="票据号"
-            value={billNo}
-            onChange={(e) => {
-              setBillNo(e.target.value);
-              setPagination((p) => ({ ...p, page: 1 }));
-            }}
-          />
-
-          <Input
-            type="date"
-            className="w-40"
-            value={startDate}
-            title="入库开始日期"
-            onChange={(e) => {
-              setStartDate(e.target.value);
-              setPagination((p) => ({ ...p, page: 1 }));
-            }}
-          />
-          <span className="text-muted-foreground">至</span>
-          <Input
-            type="date"
-            className="w-40"
-            value={endDate}
-            title="入库结束日期"
-            onChange={(e) => {
-              setEndDate(e.target.value);
-              setPagination((p) => ({ ...p, page: 1 }));
-            }}
-          />
-
-          <Select value={itemType} onValueChange={changeFilter(setItemType)}>
-            <SelectTrigger className="w-32">
-              <SelectValue placeholder="货物类型" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部货物</SelectItem>
-              <SelectItem value="PRODUCT">产品</SelectItem>
-              <SelectItem value="CONSUMABLE">耗材</SelectItem>
-              <SelectItem value="OTHER">其它</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select value={supplierId} onValueChange={changeFilter(setSupplierId)}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="供应商" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部供应商</SelectItem>
-              {suppliers.map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  {s.name || s.id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={consumableSupplierId}
-            onValueChange={changeFilter(setConsumableSupplierId)}
-          >
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="耗材供应商" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部耗材供应商</SelectItem>
-              {consumableSuppliers.map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  {s.name || s.id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={checkerId} onValueChange={changeFilter(setCheckerId)}>
-            <SelectTrigger className="w-36">
-              <SelectValue placeholder="核对人" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部核对人</SelectItem>
-              {users.map((u) => (
-                <SelectItem key={u.id} value={u.id}>
-                  {u.name || u.username || u.id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={isAccurate}
-            onValueChange={changeFilter(setIsAccurate)}
-          >
-            <SelectTrigger className="w-32">
-              <SelectValue placeholder="是否准确" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部</SelectItem>
-              <SelectItem value="true">准确</SelectItem>
-              <SelectItem value="false">不准确</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select
-            value={paymentStatus}
-            onValueChange={changeFilter(setPaymentStatus)}
-          >
-            <SelectTrigger className="w-36">
-              <SelectValue placeholder="打款状态" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部打款状态</SelectItem>
-              <SelectItem value="SETTLED">已结清</SelectItem>
-              <SelectItem value="PARTIAL">部分付款</SelectItem>
-              <SelectItem value="UNPAID">未付款</SelectItem>
-              <SelectItem value="NO_AMOUNT">未填金额</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Button variant="ghost" onClick={resetFilters}>
-            重置
-          </Button>
         </CardContent>
       </Card>
 
@@ -739,24 +738,18 @@ export default function PurchaseReceiptsPage() {
                 <TableHead className="whitespace-nowrap">供应商</TableHead>
                 <TableHead className="whitespace-nowrap">产品规格</TableHead>
                 <TableHead className="whitespace-nowrap">入库数量</TableHead>
-                <TableHead className="whitespace-nowrap">货物照片</TableHead>
                 <TableHead className="whitespace-nowrap">票据号</TableHead>
-                <TableHead className="whitespace-nowrap">发货单照片</TableHead>
-                <TableHead className="whitespace-nowrap">核对人</TableHead>
                 <TableHead className="whitespace-nowrap">是否准确</TableHead>
                 <TableHead className="whitespace-nowrap">打款情况</TableHead>
-                <TableHead className="whitespace-nowrap">备注</TableHead>
-                <TableHead className="whitespace-nowrap text-right">
-                  操作
-                </TableHead>
+                <TableHead className="whitespace-nowrap text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
                   <TableCell
-                    colSpan={14}
-                    className="py-8 text-center text-sm text-muted-foreground"
+                    colSpan={10}
+                    className="py-12 text-center text-sm text-muted-foreground"
                   >
                     加载中...
                   </TableCell>
@@ -764,8 +757,8 @@ export default function PurchaseReceiptsPage() {
               ) : records.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={14}
-                    className="py-8 text-center text-sm text-muted-foreground"
+                    colSpan={10}
+                    className="py-12 text-center text-sm text-muted-foreground"
                   >
                     暂无数据
                   </TableCell>
@@ -776,35 +769,26 @@ export default function PurchaseReceiptsPage() {
                     ? row.items
                     : [null];
                   const span = Math.max(items.length, 1);
-                  const billFiles = fileIdsOf(row.images);
                   return items.map((item, idx) => (
                     <TableRow
                       key={`${row.id}-${item?.id ?? idx}`}
                       className="align-top"
                     >
                       {idx === 0 && (
-                        <>
-                          <TableCell
-                            rowSpan={span}
-                            className="whitespace-nowrap align-top"
-                          >
-                            <div className="font-medium">
-                              {formatDateTime(row.receiptTime)}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {row.receiptNo}
-                            </div>
-                          </TableCell>
-                        </>
+                        <TableCell
+                          rowSpan={span}
+                          className="whitespace-nowrap py-5 align-top font-medium"
+                        >
+                          {formatDate(row.receiptTime)}
+                        </TableCell>
                       )}
 
-                      {/* 明细级 */}
-                      <TableCell className="whitespace-nowrap align-top">
+                      <TableCell className="whitespace-nowrap py-5 align-top">
                         {ITEM_TYPE_LABEL[item?.itemType || ''] ||
                           item?.itemType ||
                           '-'}
                       </TableCell>
-                      <TableCell className="align-top">
+                      <TableCell className="py-5 align-top">
                         <span className="whitespace-nowrap">
                           {item?.itemName || '-'}
                         </span>
@@ -814,58 +798,33 @@ export default function PurchaseReceiptsPage() {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell className="align-top">
+                      <TableCell className="py-5 align-top">
                         <span className="whitespace-nowrap">
                           {item?.supplierName || '-'}
                         </span>
                       </TableCell>
-                      <TableCell className="align-top">
+                      <TableCell className="py-5 align-top">
                         <span className="whitespace-nowrap">
                           {item?.specName || '-'}
                         </span>
                       </TableCell>
-                      <TableCell className="align-top">
+                      <TableCell className="py-5 align-top">
                         <span className="whitespace-nowrap">
                           {item?.quantityText || '-'}
                         </span>
-                      </TableCell>
-                      <TableCell className="align-top">
-                        <Thumbs
-                          fileIds={fileIdsOf(item?.images)}
-                          onPreview={setPreviewUrl}
-                        />
                       </TableCell>
 
                       {idx === 0 && (
                         <>
                           <TableCell
                             rowSpan={span}
-                            className="whitespace-nowrap align-top"
+                            className="whitespace-nowrap py-5 align-top"
                           >
-                            <div>{row.billNo || '-'}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {BILL_NO_SOURCE_LABEL[row.billNoSource || 'NONE'] ||
-                                row.billNoSource}
-                            </div>
+                            {row.billNo || '-'}
                           </TableCell>
                           <TableCell
                             rowSpan={span}
-                            className="align-top"
-                          >
-                            <Thumbs
-                              fileIds={billFiles}
-                              onPreview={setPreviewUrl}
-                            />
-                          </TableCell>
-                          <TableCell
-                            rowSpan={span}
-                            className="whitespace-nowrap align-top"
-                          >
-                            {row.checker?.name || '-'}
-                          </TableCell>
-                          <TableCell
-                            rowSpan={span}
-                            className="whitespace-nowrap align-top"
+                            className="whitespace-nowrap py-5 align-top"
                           >
                             {row.isAccurate ? (
                               <span className="text-[#00b800]">准确</span>
@@ -875,7 +834,7 @@ export default function PurchaseReceiptsPage() {
                           </TableCell>
                           <TableCell
                             rowSpan={span}
-                            className="whitespace-nowrap align-top"
+                            className="whitespace-nowrap py-5 align-top"
                           >
                             <PaymentCell payment={row.payment} />
                             {row.billAmount !== null &&
@@ -887,13 +846,7 @@ export default function PurchaseReceiptsPage() {
                           </TableCell>
                           <TableCell
                             rowSpan={span}
-                            className="min-w-32 align-top"
-                          >
-                            <span className="break-words">{row.remark || '-'}</span>
-                          </TableCell>
-                          <TableCell
-                            rowSpan={span}
-                            className="whitespace-nowrap align-top text-right"
+                            className="whitespace-nowrap py-5 align-top text-right"
                           >
                             <div className="flex justify-end gap-1">
                               <PermissionGate permission="purchase:detail">
@@ -1023,7 +976,7 @@ export default function PurchaseReceiptsPage() {
       <Sheet open={detailOpen} onOpenChange={setDetailOpen}>
         <SheetContent
           side="right"
-          className="w-[560px] max-w-full overflow-y-auto"
+          className="w-[880px] overflow-y-auto sm:w-[880px] sm:max-w-[880px]"
         >
           <SheetHeader>
             <SheetTitle>
@@ -1031,7 +984,7 @@ export default function PurchaseReceiptsPage() {
             </SheetTitle>
           </SheetHeader>
           {detailRecord && (
-            <div className="space-y-6 px-4 pb-6">
+            <div className="space-y-4 px-4 pb-4">
               {detailLoading && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" /> 正在加载完整详情...
@@ -1042,7 +995,7 @@ export default function PurchaseReceiptsPage() {
                 <h3 className="text-sm font-semibold text-[#409fff]">
                   基本信息
                 </h3>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-border p-3">
+                <div className="grid grid-cols-3 gap-x-4 gap-y-2 rounded-lg border border-border p-2.5">
                   <Field label="入库单号" value={detailRecord.receiptNo} />
                   <Field
                     label="入库日期"
@@ -1080,7 +1033,7 @@ export default function PurchaseReceiptsPage() {
 
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-[#409fff]">票据</h3>
-                <div className="space-y-3 rounded-lg border border-border p-3">
+                <div className="space-y-2 rounded-lg border border-border p-2.5">
                   <Field label="票据号" value={detailRecord.billNo} />
                   <div>
                     <div className="mb-1 text-xs text-muted-foreground">
@@ -1099,13 +1052,20 @@ export default function PurchaseReceiptsPage() {
                 <h3 className="text-sm font-semibold text-[#409fff]">
                   物品明细（{detailRecord.items?.length ?? 0} 项）
                 </h3>
-                <div className="space-y-3">
+                <div
+                  className={cn(
+                    'gap-2',
+                    (detailRecord.items?.length ?? 0) > 1
+                      ? 'grid grid-cols-2'
+                      : 'space-y-2',
+                  )}
+                >
                   {(detailRecord.items ?? []).map((item, idx) => (
                     <div
                       key={item.id || idx}
-                      className="space-y-3 rounded-lg border border-border p-3"
+                      className="space-y-2 rounded-lg border border-border p-2.5"
                     >
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                         <Field
                           label="货物类型"
                           value={ITEM_TYPE_LABEL[item.itemType] || item.itemType}
@@ -1138,7 +1098,7 @@ export default function PurchaseReceiptsPage() {
                 <h3 className="text-sm font-semibold text-[#409fff]">
                   打款关联
                 </h3>
-                <div className="space-y-2 rounded-lg border border-border p-3">
+                <div className="space-y-2 rounded-lg border border-border p-2.5">
                   <div className="flex flex-wrap items-center gap-2">
                     {(() => {
                       const meta =

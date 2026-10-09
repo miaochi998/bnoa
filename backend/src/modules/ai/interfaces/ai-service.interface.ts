@@ -16,6 +16,8 @@ export interface GenerateOptions {
     apiKey?: string;
     modelId?: string;
     apiEndpoint?: string;
+    /** 思考模式开关（DeepSeek 推理模型：enabled/disabled；不传则由服务端默认=enabled） */
+    thinking?: 'enabled' | 'disabled';
 }
 
 export interface AIResponse {

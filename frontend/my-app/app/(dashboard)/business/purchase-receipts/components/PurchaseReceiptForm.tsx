@@ -1023,42 +1023,27 @@ export function PurchaseReceiptForm({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+      <DialogContent className="max-h-[94vh] overflow-y-auto sm:max-w-[1100px]">
         <DialogHeader>
-          <DialogTitle>
-            {mode === 'create' ? '新增入库记录' : '编辑入库记录'}
-            {mode === 'edit' && record?.receiptNo ? ` · ${record.receiptNo}` : ''}
+          <DialogTitle className="flex flex-wrap items-center gap-3 pr-6">
+            <span>
+              {mode === 'create' ? '新增入库记录' : '编辑入库记录'}
+              {mode === 'edit' && record?.receiptNo
+                ? ` · ${record.receiptNo}`
+                : ''}
+            </span>
+            <Input
+              type="datetime-local"
+              className="h-8 w-[205px] text-sm font-normal"
+              value={receiptTime}
+              title="入库日期时间（精确到分钟，支持补录历史到货）"
+              onChange={(e) => setReceiptTime(e.target.value)}
+            />
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-x-5 gap-y-4">
-          {/* ① 入库日期 */}
-          <SectionTitle>入库信息</SectionTitle>
-          <div className="space-y-1">
-            <Label>入库日期时间 *</Label>
-            <Input
-              type="datetime-local"
-              value={receiptTime}
-              onChange={(e) => setReceiptTime(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              默认当前时间、精确到分钟，支持补录历史到货
-            </p>
-          </div>
-          <div className="space-y-1">
-            <Label>核对人</Label>
-            <Input
-              value={user?.name || user?.username || ''}
-              readOnly
-              disabled
-              placeholder="自动取当前登录用户"
-            />
-            <p className="text-xs text-muted-foreground">
-              系统自动填写，不可修改
-            </p>
-          </div>
-
-          {/* ② 物品明细 */}
+        <div className="grid grid-cols-2 gap-x-5 gap-y-3">
+          {/* ① 物品明细 */}
           <SectionTitle>物品明细（一张单可含多个物品）</SectionTitle>
           <div className="col-span-2 space-y-3">
             {loadingDetail && (
@@ -1089,7 +1074,7 @@ export function PurchaseReceiptForm({
                   </Button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
                   <div className="space-y-1">
                     <Label>货物类型 *</Label>
                     <Select
@@ -1290,20 +1275,20 @@ export function PurchaseReceiptForm({
                       />
                     </div>
                   )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label>入库数量 *</Label>
                     <Input
                       value={row.quantityText}
                       maxLength={200}
-                      placeholder="自由文本，如 34包/16立方"
+                      placeholder="如 34包/16立方"
                       onChange={(e) =>
                         updateRow(row.key, { quantityText: e.target.value })
                       }
                     />
                   </div>
+                </div>
+
+                <div className="space-y-3">
                   <div className="space-y-1">
                     <Label>行备注</Label>
                     <Input
@@ -1314,15 +1299,14 @@ export function PurchaseReceiptForm({
                       }
                     />
                   </div>
+                  <MultiImageUploader
+                    label="货物照片"
+                    hint={`最多 10 张（${row.images.length}/10）`}
+                    maxCount={10}
+                    value={row.images}
+                    onChange={(ids) => updateRow(row.key, { images: ids })}
+                  />
                 </div>
-
-                <MultiImageUploader
-                  label="货物照片"
-                  hint={`最多 10 张（${row.images.length}/10）`}
-                  maxCount={10}
-                  value={row.images}
-                  onChange={(ids) => updateRow(row.key, { images: ids })}
-                />
               </div>
             ))}
 
@@ -1339,7 +1323,7 @@ export function PurchaseReceiptForm({
 
           {/* ③ 票据区 */}
           <SectionTitle>票据区</SectionTitle>
-          <div className="col-span-2 space-y-3">
+          <div className="col-span-2 grid grid-cols-2 gap-4">
             <MultiImageUploader
               label="发货单 / 票据照片"
               hint={`最多 3 张（${billImages.length}/3）`}
@@ -1352,7 +1336,7 @@ export function PurchaseReceiptForm({
               <Label>票据号</Label>
               <div className="flex flex-wrap items-center gap-2">
                 <Input
-                  className="w-64"
+                  className="w-56"
                   value={billNo}
                   maxLength={100}
                   placeholder="发货单上的票据号（可留空）"
@@ -1382,10 +1366,10 @@ export function PurchaseReceiptForm({
                   )}
                   生成无票编号
                 </Button>
-                <span className="text-xs text-muted-foreground">
-                  无票据时可点此生成 WP-YYYYMMDD-HHmm，与打款侧规则一致
-                </span>
               </div>
+              <p className="text-xs text-muted-foreground">
+                无票据可生成 WP-YYYYMMDD-HHmm；上传发货单照片会自动 AI 识别票据号
+              </p>
             </div>
           </div>
 
@@ -1426,6 +1410,7 @@ export function PurchaseReceiptForm({
               备注 {!accurate && '*'}
             </Label>
             <Textarea
+              rows={2}
               value={remark}
               className={cn(!accurate && 'border-destructive')}
               placeholder={
@@ -1438,7 +1423,7 @@ export function PurchaseReceiptForm({
           </div>
         </div>
 
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-3 flex justify-end gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>

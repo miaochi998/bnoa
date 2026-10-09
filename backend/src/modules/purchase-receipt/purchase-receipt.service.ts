@@ -325,7 +325,9 @@ export class PurchaseReceiptService {
                 model.name,
                 messages,
                 userId,
-                { temperature: 0.1, maxTokens: 100 },
+                // 票据号识别属于纯感知提取，不需要思维链：
+                // 关闭思考模式可显著减少输出 token 与耗时（DeepSeek flash 默认开启思考）
+                { temperature: 0.1, maxTokens: 500, thinking: 'disabled' },
             );
             const raw = (res.content || '').trim();
             return {

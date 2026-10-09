@@ -177,7 +177,7 @@ export function MultiImageUploader({
         {fileIds.map((fileId) => (
           <div
             key={fileId}
-            className="group relative h-20 w-20 overflow-hidden rounded-md border border-border bg-card"
+            className="group relative h-16 w-16 overflow-hidden rounded-md border border-border bg-card"
           >
             <button
               type="button"
@@ -211,7 +211,7 @@ export function MultiImageUploader({
         {pending.map((p) => (
           <div
             key={p.key}
-            className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-primary/60 bg-card text-xs text-muted-foreground"
+            className="flex h-16 w-16 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-primary/60 bg-card text-xs text-muted-foreground"
           >
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
             <span>{p.progress}%</span>
@@ -223,7 +223,7 @@ export function MultiImageUploader({
           disabled={full}
           onClick={() => inputRef.current?.click()}
           className={cn(
-            'flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-input text-xs text-muted-foreground transition-colors duration-200',
+            'flex h-16 w-16 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-input text-xs text-muted-foreground transition-colors duration-200',
             full
               ? 'cursor-not-allowed opacity-50'
               : 'cursor-pointer hover:border-primary hover:text-foreground',

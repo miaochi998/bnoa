@@ -40,6 +40,8 @@ export class AIService {
             temperature?: number;
             maxTokens?: number;
             topP?: number;
+            /** 思考模式开关（DeepSeek 等推理模型支持；不传则由服务端默认） */
+            thinking?: 'enabled' | 'disabled';
         },
     ): Promise<AIResponse> {
         const startTime = Date.now();
@@ -84,6 +86,7 @@ export class AIService {
                         config.maxTokens ??
                         2000,
                     topP: options?.topP ?? config.topP ?? 0.9,
+                    thinking: options?.thinking ?? config.thinking,
                 },
             );
 
