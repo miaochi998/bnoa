@@ -41,7 +41,8 @@ export class UpgradeController {
   @Get('check')
   @ApiOperation({ summary: '检查更新' })
   async checkForUpdate() {
-    return this.versionService.checkForUpdate();
+    // 走 UpgradeService：发现新版本时会**异步**触发后台预拉取镜像（不阻塞本次响应）
+    return this.upgradeService.checkForUpdate();
   }
 
   @Post('execute')

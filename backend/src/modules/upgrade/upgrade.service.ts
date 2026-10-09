@@ -8,6 +8,7 @@ import { PrismaService } from '../../config/prisma.service';
 import { VersionService } from './services/version.service';
 import { PortainerService } from './services/portainer.service';
 import { HealthCheckService } from './services/health-check.service';
+import { PrepullService } from './services/prepull.service';
 import { RedisService } from '../../common/services/redis.service';
 
 interface UpgradeStep {
@@ -37,6 +38,7 @@ export class UpgradeService implements OnApplicationBootstrap {
     private readonly portainerService: PortainerService,
     private readonly healthCheckService: HealthCheckService,
     private readonly redisService: RedisService,
+    private readonly prepullService: PrepullService,
   ) {}
 
   async onApplicationBootstrap() {
@@ -288,6 +290,33 @@ export class UpgradeService implements OnApplicationBootstrap {
   }
 
   /**
+   * 检查更新（GET /upgrade/check 的入口）。
+   *
+   * 在原有检查逻辑之上追加「发现新版本 → **异步**后台预拉取镜像」（方向 A 的触发①）：
+   * 触发后立即返回，**不 await**，因此不会拖慢这个 HTTP 响应。
+   * 预拉取失败只记 warn，绝不影响检查更新的返回结果。
+   */
+  async checkForUpdate(): Promise<
+    Awaited<ReturnType<VersionService['checkForUpdate']>>
+  > {
+    const result = await this.versionService.checkForUpdate();
+
+    if (result.hasUpdate && result.latestVersion) {
+      try {
+        // 同步入队 + fire-and-forget：镜像提前落到本机 daemon，
+        // 用户随后点升级时预检可命中"镜像已在本机"而跳过整段阻塞式拉取。
+        this.prepullService.triggerPrepull(result.latestVersion, 'check-api');
+      } catch (error) {
+        this.logger.warn(
+          `触发后台预拉取失败（已忽略）: ${(error as Error)?.message || error}`,
+        );
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * 获取升级锁；若发现是**残留锁**则自动清除后重试。
    *
    * 锁用于防止并发升级（合理设计），但历史上存在残留问题：升级成功后锁不会自动释放，
@@ -326,6 +355,112 @@ export class UpgradeService implements OnApplicationBootstrap {
 
   private async releaseLock(): Promise<void> {
     await this.redisService.del(this.UPGRADE_LOCK_KEY);
+  }
+
+  /**
+   * 升级前预检（全部只读，不修改任何状态）：
+   *   ① 读取容器「实际运行」的镜像；② 校验栈镜像是否使用 ${APP_VERSION} 变量；
+   *   ③ 校验目标镜像可用 —— **先查本机 daemon 是否已有**，已有则跳过整段阻塞式拉取
+   *      （后台预拉取 PrepullService 会提前把镜像拉好；查询失败则回退为直接拉取）。
+   *
+   * 返回结果里的 `durationsMs` 是运维要求的**细粒度计时**（各子步骤毫秒数），
+   * 原有字段（currentRunningVersion / containersHealthy / stackImageUsesVariable /
+   * imageCheck）全部保留，新增字段只增不改，保证向后兼容。
+   */
+  private async runPreflight(
+    targetVersion: string,
+  ): Promise<Record<string, any>> {
+    const preflightStart = Date.now();
+    // 细粒度计时（毫秒）：运维需要据此判断预检的时间到底花在哪一段
+    const durationsMs: Record<string, number | boolean> = {};
+
+    // ① 读取各容器**实际运行**的镜像（只读查询）
+    const readContainersStart = Date.now();
+    const running = await this.portainerService.getRunningVersions();
+    durationsMs.readContainers = Date.now() - readContainersStart;
+
+    // ② 栈的镜像定义必须使用 ${APP_VERSION} 变量，否则升级注定静默失效
+    const checkStackFileStart = Date.now();
+    const stackCheck = await this.portainerService.isStackFileUsingVersionVar();
+    durationsMs.checkStackFile = Date.now() - checkStackFileStart;
+    if (!stackCheck.ok) {
+      throw new Error(
+        '栈的镜像定义写死了 tag、未使用 ${APP_VERSION} 变量，升级不会生效。' +
+          `请先在 Portainer 中把以下行改为变量形式：${stackCheck.hardcoded.join(' | ')}`,
+      );
+    }
+
+    // ③ 目标镜像必须存在：交由 Docker daemon 来判断。
+    //    ⚠️ 不能让后端直接请求 Docker Hub —— 本环境服务器**容器内无法直连**
+    //    Docker Hub / registry（拉镜像走 daemon 层的加速器，容器内 HTTP 不走加速器，
+    //    实测均超时）。由 daemon 判断才可靠。
+    //
+    //    ⚡ 优化（方向 B）：先查本机 daemon 的镜像列表 —— 后台预拉取（PrepullService）
+    //    若已把镜像拉到本机，这里就能**跳过整段阻塞式拉取**，预检从数分钟降到秒级。
+    //    ⚠️ 查询本身失败（网络/接口异常）必须**回退到原来的 pullOaImages 行为**，
+    //    绝不能因为"查不到"就跳过镜像校验。
+    const checkLocalImagesStart = Date.now();
+    const localImages =
+      await this.portainerService.areOaImagesPresent(targetVersion);
+    durationsMs.checkLocalImages = Date.now() - checkLocalImagesStart;
+
+    let prepullSkipped = false;
+    let imageCheckMessage: string;
+
+    if (localImages.queryOk && localImages.present) {
+      prepullSkipped = true;
+      durationsMs.pullImages = 0;
+      imageCheckMessage = `${localImages.message}（镜像已在本机，跳过预拉取）`;
+      this.logger.log(`[预检] 镜像已在本机，跳过预拉取: ${targetVersion}`);
+    } else {
+      const pullImagesStart = Date.now();
+      const imageCheck =
+        await this.portainerService.pullOaImages(targetVersion);
+      durationsMs.pullImages = Date.now() - pullImagesStart;
+
+      if (!imageCheck.ok) {
+        throw new Error(
+          `目标镜像不存在：${imageCheck.message}。请确认该版本已构建并推送到 Docker Hub。`,
+        );
+      }
+      imageCheckMessage = imageCheck.message;
+    }
+
+    durationsMs.prepullSkipped = prepullSkipped;
+    durationsMs.total = Date.now() - preflightStart;
+
+    const prepullState = this.prepullService.getStatus(targetVersion);
+
+    // 汇总日志：一眼看出预检时间花在哪一段
+    this.logger.log(
+      `[预检计时] 读取容器 ${durationsMs.readContainers}ms` +
+        ` | 校验栈文件 ${durationsMs.checkStackFile}ms` +
+        ` | 查询本机镜像 ${durationsMs.checkLocalImages}ms（${
+          localImages.queryOk
+            ? localImages.present
+              ? '已在本机'
+              : '不在本机'
+            : '查询失败，已回退为直接拉取'
+        }）` +
+        ` | 预拉取 ${durationsMs.pullImages}ms${
+          prepullSkipped ? '（已跳过：镜像已在本机）' : ''
+        }` +
+        ` | 预检合计 ${durationsMs.total}ms` +
+        (prepullState ? ` | 后台预拉取状态 ${prepullState.status}` : ''),
+    );
+
+    return {
+      currentRunningVersion: running.backendVersion,
+      containersHealthy: running.allHealthy,
+      stackImageUsesVariable: stackCheck.ok,
+      imageCheck: imageCheckMessage,
+      // 新增字段（向后兼容：原有字段全部保留）
+      durationsMs,
+      prepullSkipped,
+      localImagesPresent: localImages.queryOk && localImages.present,
+      localImageQueryOk: localImages.queryOk,
+      prepullStatus: prepullState?.status ?? 'none',
+    };
   }
 
   async executeUpgrade(
@@ -388,38 +523,9 @@ export class UpgradeService implements OnApplicationBootstrap {
       const preflightStep = await this.executeStep(
         'preflight',
         '升级前预检',
-        async () => {
-          const running = await this.portainerService.getRunningVersions();
-
-          // ① 栈的镜像定义必须使用 ${APP_VERSION} 变量，否则升级注定静默失效
-          const stackCheck =
-            await this.portainerService.isStackFileUsingVersionVar();
-          if (!stackCheck.ok) {
-            throw new Error(
-              '栈的镜像定义写死了 tag、未使用 ${APP_VERSION} 变量，升级不会生效。' +
-                `请先在 Portainer 中把以下行改为变量形式：${stackCheck.hardcoded.join(' | ')}`,
-            );
-          }
-
-          // ② 目标镜像必须存在：交由 Docker daemon 预拉取来判断。
-          //    ⚠️ 不能让后端直接请求 Docker Hub —— 本环境服务器**容器内无法直连**
-          //    Docker Hub / registry（拉镜像走 daemon 层的加速器，容器内 HTTP 不走加速器，
-          //    实测均超时）。由 daemon 判断才可靠；顺带把镜像预拉到本地，升级重建更快。
-          const imageCheck = await this.portainerService.pullOaImages(targetVersion);
-          if (!imageCheck.ok) {
-            throw new Error(
-              `目标镜像不存在：${imageCheck.message}。请确认该版本已构建并推送到 Docker Hub。`,
-            );
-          }
-
-          return {
-            currentRunningVersion: running.backendVersion,
-            containersHealthy: running.allHealthy,
-            stackImageUsesVariable: stackCheck.ok,
-            imageCheck: imageCheck.message,
-          };
-        },
+        () => this.runPreflight(targetVersion),
       );
+
       steps.push(preflightStep);
 
       if (preflightStep.status === 'failed') {

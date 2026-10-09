@@ -323,7 +323,13 @@ export class PortainerService {
         null,
         {
           params: { fromImage: repo, tag },
-          timeout: 300000, // 预拉取可能较慢（冷启动实测 143s）；超时即视为 unknown 并放行
+          // ⚠️ 这里只是"尽力而为"的兜底，不是可靠的整体超时：
+          // Docker/Portainer 的拉取接口返回的是**流式响应**（持续吐 JSON 进度行），
+          // axios 的 timeout 针对"整个请求"，对"持续有数据到达"的流可能不生效
+          // （实测曾有单次拉取 994 秒未触发超时）。
+          // 因此拉取耗时的正经解法是"提前异步预拉取"（PrepullService）+ 预检前先查本机镜像，
+          // 本处把 300s 收紧到 60s：镜像不在本机时能更快落到 unknown 分支并放行，不再白等。
+          timeout: 60000,
         },
       );
       return { status: 'ready', message: `${ref} 已就绪（预拉取完成）` };
@@ -366,27 +372,167 @@ export class PortainerService {
   async pullOaImages(
     version: string,
   ): Promise<{ ok: boolean; message: string }> {
+    const { results, allReady } = await this.pullOaImagesDetailed(version);
+    const message = results.map((r) => r.message).join('；');
+
+    if (results.some((r) => r.status === 'missing')) {
+      return { ok: false, message };
+    }
+    if (!allReady) {
+      // 存在 unknown（未能判定）→ 放行
+      return { ok: true, message: `${message}（未能完成校验，按原流程继续）` };
+    }
+    return { ok: true, message };
+  }
+
+  /**
+   * 结构化版本的 OA 镜像预拉取（供后台异步预拉取 PrepullService 使用）。
+   *
+   * 与 pullOaImages 的差异：不把三态压成 ok/message，而是原样返回每个镜像的
+   * `ready | missing | unknown`，调用方才能如实记录"预拉取到底成没成"。
+   * 短路规则与 pullOaImages 保持一致：任一镜像非 ready 就不再继续拉下一个。
+   */
+  async pullOaImagesDetailed(version: string): Promise<{
+    allReady: boolean;
+    results: Array<{
+      ref: string;
+      status: 'ready' | 'missing' | 'unknown';
+      message: string;
+    }>;
+    message: string;
+  }> {
     const config = await this.configService.getConfig();
     const prefix = config.dockerImagePrefix || 'miaochi/bnoa';
-    const results: string[] = [];
+    const results: Array<{
+      ref: string;
+      status: 'ready' | 'missing' | 'unknown';
+      message: string;
+    }> = [];
 
     for (const suffix of ['backend', 'frontend']) {
-      const r = await this.pullImage(`${prefix}-${suffix}`, version);
-      results.push(r.message);
+      const repo = `${prefix}-${suffix}`;
+      const r = await this.pullImage(repo, version);
+      results.push({
+        ref: `${repo}:${version}`,
+        status: r.status,
+        message: r.message,
+      });
 
-      if (r.status === 'missing') {
-        return { ok: false, message: results.join('；') };
-      }
-      if (r.status === 'unknown') {
-        // 无法判定时不再继续尝试其它镜像，直接放行
-        return {
-          ok: true,
-          message: `${results.join('；')}（未能完成校验，按原流程继续）`,
-        };
+      if (r.status !== 'ready') {
+        break;
       }
     }
 
-    return { ok: true, message: results.join('；') };
+    return {
+      allReady:
+        results.length === 2 && results.every((r) => r.status === 'ready'),
+      results,
+      message: results.map((r) => r.message).join('；'),
+    };
+  }
+
+  /**
+   * 列出本机 daemon 全部镜像的 RepoTags（已做 registry 前缀归一化）。
+   *
+   * 接口：`GET /api/endpoints/{endpointId}/docker/images/json`
+   * （Portainer 透传 Docker Engine API，返回的是**镜像对象数组**）。
+   *
+   * 实测确认（2026-10-10，测试机 192.168.2.6 / Endpoint 1，57 个镜像）：
+   * 每个元素形如
+   *   { Id, ParentId, RepoTags: ["miaochi/bnoa-backend:0.5.8"], RepoDigests, Created, Size, SharedSize, Containers, Labels }
+   * 注意 `RepoTags` **可能为 null**（dangling 镜像）、也可能是**多个 tag 的数组**，
+   * 所以必须逐个 tag 精确匹配，不能拿字段直接比较。
+   */
+  private async listImageRepoTags(): Promise<string[]> {
+    const enabled = await this.isEnabled();
+    if (!enabled) {
+      throw new Error('Portainer 集成未启用');
+    }
+
+    const config = await this.configService.getConfig();
+    const client = await this.getClient();
+    const response = await client.get(
+      `/api/endpoints/${config.portainerEndpointId}/docker/images/json`,
+    );
+
+    const images: any[] = Array.isArray(response.data) ? response.data : [];
+    const tags: string[] = [];
+    for (const image of images) {
+      const repoTags = image?.RepoTags;
+      if (!Array.isArray(repoTags)) continue;
+      for (const t of repoTags) {
+        if (typeof t === 'string' && t) tags.push(this.normalizeImageRef(t));
+      }
+    }
+    return tags;
+  }
+
+  /**
+   * 归一化镜像引用，避免同一镜像因 registry 前缀写法不同而漏判：
+   * `docker.io/miaochi/bnoa-backend:0.5.8` 与 `miaochi/bnoa-backend:0.5.8` 视为同一引用。
+   */
+  private normalizeImageRef(ref: string): string {
+    return String(ref || '')
+      .trim()
+      .replace(
+        /^(?:docker\.io|index\.docker\.io|registry-1\.docker\.io)\//,
+        '',
+      );
+  }
+
+  /**
+   * 本机 daemon 是否已有指定镜像（`repo:tag` 精确匹配 RepoTags）。
+   *
+   * ⚠️ 这是**只读查询**；查询失败会抛出异常，调用方必须捕获并**回退到直接拉取**的
+   * 旧行为 —— 绝不能因为"查不到"就跳过镜像校验。
+   */
+  async isImagePresent(repo: string, tag: string): Promise<boolean> {
+    const tags = await this.listImageRepoTags();
+    return tags.includes(this.normalizeImageRef(`${repo}:${tag}`));
+  }
+
+  /**
+   * 查询 OA 前后端镜像是否**都**已在本机（预检/预拉取用，**不抛异常**）。
+   *
+   * 返回 `queryOk=false` 表示"查询本身失败"（网络/接口异常/未启用），
+   * 调用方据此回退到原来的 `pullOaImages` 行为。
+   */
+  async areOaImagesPresent(version: string): Promise<{
+    queryOk: boolean;
+    present: boolean;
+    missing: string[];
+    message: string;
+  }> {
+    const config = await this.configService.getConfig();
+    const prefix = config.dockerImagePrefix || 'miaochi/bnoa';
+    const refs = ['backend', 'frontend'].map(
+      (s) => `${prefix}-${s}:${version}`,
+    );
+
+    try {
+      const tags = await this.listImageRepoTags();
+      const missing = refs.filter(
+        (ref) => !tags.includes(this.normalizeImageRef(ref)),
+      );
+
+      return {
+        queryOk: true,
+        present: missing.length === 0,
+        missing,
+        message:
+          missing.length === 0
+            ? `${refs.join('、')} 已在本机`
+            : `本机缺少镜像：${missing.join('、')}`,
+      };
+    } catch (error) {
+      this.logger.warn(`查询本机镜像列表失败: ${error.message}`);
+      return {
+        queryOk: false,
+        present: false,
+        missing: refs,
+        message: `查询本机镜像失败：${error.message}`,
+      };
+    }
   }
 
   resetClient(): void {
