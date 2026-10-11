@@ -43,6 +43,7 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { apiClient } from '@/lib/api';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import { usePermissionStore } from '@/lib/stores/permission-store';
 import {
     Globe,
@@ -184,6 +185,8 @@ export default function PlatformPage() {
     } | null>(null);
 
     const canUpdate = usePermissionStore((s) => s.hasPermission('platform:update'));
+    // 信息权限（能看/能改哪些字段）
+    const fp = useFieldPermissions('platform');
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -362,6 +365,17 @@ export default function PlatformPage() {
                 <CardHeader className="flex flex-row items-center justify-between pb-3">
                     <CardTitle className="text-sm font-medium">平台列表</CardTitle>
                     <div className="flex items-center gap-2">
+                        {/* Logo 配置弹窗此前没有入口按钮，弹窗永远打不开 */}
+                        <PermissionGate permission="system:config">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setConfigDialogOpen(true)}
+                            >
+                                <Settings className="w-4 h-4 mr-1" />
+                                Logo 设置
+                            </Button>
+                        </PermissionGate>
                         <PermissionGate permission="platform:create">
                             <Button onClick={handleAdd} size="sm">
                                 <Plus className="w-4 h-4 mr-1" />
@@ -403,12 +417,12 @@ export default function PlatformPage() {
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead className="w-10">拖拽</TableHead>
-                                            <TableHead>平台名称</TableHead>
-                                            <TableHead>平台编码</TableHead>
-                                            <TableHead>平台类型</TableHead>
-                                            <TableHead>状态</TableHead>
-                                            <TableHead>官网</TableHead>
-                                            <TableHead>备注</TableHead>
+                                            {fp.canView('name') && <TableHead>平台名称</TableHead>}
+                                            {fp.canView('code') && <TableHead>平台编码</TableHead>}
+                                            {fp.canView('type') && <TableHead>平台类型</TableHead>}
+                                            {fp.canView('status') && <TableHead>状态</TableHead>}
+                                            {fp.canView('website') && <TableHead>官网</TableHead>}
+                                            {fp.canView('remark') && <TableHead>备注</TableHead>}
                                             <TableHead className="text-right">操作</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -426,6 +440,7 @@ export default function PlatformPage() {
                                                     id={platform.id}
                                                     disabled={!canUpdate}
                                                 >
+                                                    {fp.canView('name') && (
                                                     <TableCell className="font-medium">
                                                         <EditableCell
                                                             value={platform.name}
@@ -434,9 +449,11 @@ export default function PlatformPage() {
                                                             }
                                                             placeholder="平台名称"
                                                             maxLength={50}
-                                                            disabled={!canUpdate}
+                                                            disabled={!canUpdate || !fp.canEdit('name')}
                                                         />
                                                     </TableCell>
+                                                    )}
+                                                    {fp.canView('code') && (
                                                     <TableCell>
                                                         <EditableCell
                                                             value={platform.code}
@@ -445,9 +462,11 @@ export default function PlatformPage() {
                                                             }
                                                             placeholder="平台编码"
                                                             maxLength={50}
-                                                            disabled={!canUpdate}
+                                                            disabled={!canUpdate || !fp.canEdit('code')}
                                                         />
                                                     </TableCell>
+                                                    )}
+                                                    {fp.canView('type') && (
                                                     <TableCell>
                                                         <EditableSelectCell
                                                             value={platform.type}
@@ -455,9 +474,11 @@ export default function PlatformPage() {
                                                             onSave={(newValue) =>
                                                                 handleUpdateType(platform.id, newValue)
                                                             }
-                                                            disabled={!canUpdate}
+                                                            disabled={!canUpdate || !fp.canEdit('type')}
                                                         />
                                                     </TableCell>
+                                                    )}
+                                                    {fp.canView('status') && (
                                                     <TableCell>
                                                         <EditableSwitchCell
                                                             checked={platform.status === 'ACTIVE'}
@@ -466,9 +487,11 @@ export default function PlatformPage() {
                                                             }
                                                             activeLabel="启用"
                                                             inactiveLabel="停用"
-                                                            disabled={!canUpdate}
+                                                            disabled={!canUpdate || !fp.canEdit('status')}
                                                         />
                                                     </TableCell>
+                                                    )}
+                                                    {fp.canView('website') && (
                                                     <TableCell>
                                                         {platform.website ? (
                                                             <a
@@ -483,6 +506,8 @@ export default function PlatformPage() {
                                                             '-'
                                                         )}
                                                     </TableCell>
+                                                    )}
+                                                    {fp.canView('remark') && (
                                                     <TableCell className="max-w-xs truncate">
                                                         <EditableCell
                                                             value={platform.remark}
@@ -491,9 +516,10 @@ export default function PlatformPage() {
                                                             }
                                                             placeholder="备注"
                                                             maxLength={200}
-                                                            disabled={!canUpdate}
+                                                            disabled={!canUpdate || !fp.canEdit('remark')}
                                                         />
                                                     </TableCell>
+                                                    )}
                                                     <TableCell className="text-right">
                                                         <div className="flex items-center justify-end gap-2">
                                                             <PermissionGate permission="platform:update">

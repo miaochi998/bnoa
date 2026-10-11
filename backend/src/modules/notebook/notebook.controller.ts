@@ -10,6 +10,7 @@ import {
     UseGuards,
     HttpCode,
     HttpStatus,
+    ForbiddenException,
 } from '@nestjs/common';
 import {
     ApiTags,
@@ -28,13 +29,54 @@ import {
     CurrentUser,
     UserPayload,
 } from '../../common/decorators/current-user.decorator';
+import {
+    FieldKeyMapping,
+    FieldPermissionService,
+    FieldPermissionState,
+} from '../role/field-permission.service';
+
+/**
+ * 记事本字段映射：用于「信息权限」的读取脱敏与写入过滤
+ * 说明：记事本内容是个人信息，超管可在列表里看到全部人的笔记，
+ *      此时「内容」字段权限才有实际意义（普通用户本来就只能看自己的）。
+ */
+const NOTEBOOK_FIELD_MAP: FieldKeyMapping[] = [
+    { field: 'title', key: 'title' },
+    { field: 'content', key: 'content' },
+    { field: 'userId', key: 'userId' },
+    { field: 'userId', key: 'user' },
+];
+
+/** 需要递归处理的数组字段名 */
+const NOTEBOOK_NESTED_ARRAYS = ['list', 'data', 'items'];
 
 @ApiTags('记事本管理')
 @Controller('notebooks')
 @UseGuards(JwtAuthGuard, PermissionGuard)
 @ApiBearerAuth()
 export class NotebookController {
-    constructor(private readonly notebookService: NotebookService) {}
+    constructor(
+        private readonly notebookService: NotebookService,
+        private readonly fieldPermissionService: FieldPermissionService,
+    ) {}
+
+    /** 当前用户在本模块的字段权限 */
+    private resolveFields(user: UserPayload) {
+        return this.fieldPermissionService.resolve(
+            user.sub,
+            'notebook',
+            user.roles ?? [],
+        );
+    }
+
+    /** 记事本（含关联数组）的读脱敏 */
+    private stripNotebookDeep(node: any, state: FieldPermissionState): any {
+      return this.fieldPermissionService.stripHiddenFieldsDeep(
+        node,
+        NOTEBOOK_FIELD_MAP,
+        state,
+      );
+    }
 
     @Get()
     @Permissions('notebook:view')
@@ -48,7 +90,14 @@ export class NotebookController {
         @Query() filter: NotebookFilterDto,
     ) {
         const isSuperAdmin = user.roles?.includes('super_admin') || false;
-        return this.notebookService.findAll(user.sub, isSuperAdmin, filter);
+        const result = await this.notebookService.findAll(user.sub, isSuperAdmin, filter);
+        const state = await this.resolveFields(user);
+        return {
+            ...result,
+            list: (result.list || []).map((n: any) =>
+                this.stripNotebookDeep(n, state),
+            ),
+        };
     }
 
     @Get(':id')
@@ -59,7 +108,9 @@ export class NotebookController {
         @Param('id') id: string,
     ) {
         const isSuperAdmin = user.roles?.includes('super_admin') || false;
-        return this.notebookService.findById(id, user.sub, isSuperAdmin);
+        const notebook = await this.notebookService.findById(id, user.sub, isSuperAdmin);
+        const state = await this.resolveFields(user);
+        return this.stripNotebookDeep(notebook, state);
     }
 
     @Post()
@@ -70,11 +121,20 @@ export class NotebookController {
         @CurrentUser() user: UserPayload,
         @Body() data: CreateNotebookDto,
     ) {
-        const notebook = await this.notebookService.create(user.sub, data);
+        const state = await this.resolveFields(user);
+        const safe = this.fieldPermissionService.stripUneditableFields(
+            data as any,
+            NOTEBOOK_FIELD_MAP,
+            state,
+        );
+        if (!safe.title) {
+            throw new ForbiddenException('没有「记事本标题」的编辑权限');
+        }
+        const notebook = await this.notebookService.create(user.sub, safe as CreateNotebookDto);
         return {
             success: true,
             message: '记事本创建成功',
-            data: notebook,
+            data: this.stripNotebookDeep(notebook, state),
         };
     }
 
@@ -87,16 +147,25 @@ export class NotebookController {
         @Body() data: UpdateNotebookDto,
     ) {
         const isSuperAdmin = user.roles?.includes('super_admin') || false;
+        const state = await this.resolveFields(user);
+        const safe = this.fieldPermissionService.stripUneditableFields(
+            data as any,
+            NOTEBOOK_FIELD_MAP,
+            state,
+        );
+        if (Object.keys(safe).length === 0) {
+            throw new ForbiddenException('没有记事本字段的编辑权限');
+        }
         const notebook = await this.notebookService.update(
             id,
             user.sub,
             isSuperAdmin,
-            data,
+            safe as UpdateNotebookDto,
         );
         return {
             success: true,
             message: '记事本更新成功',
-            data: notebook,
+            data: this.stripNotebookDeep(notebook, state),
         };
     }
 

@@ -7,6 +7,11 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { PERMISSION_DEFINITIONS } from '../../config/permission-definitions';
+import {
+  PERMISSION_CATEGORY_LABELS,
+  PERMISSION_CATEGORY_ORDER,
+  getPermissionCategory,
+} from '../../config/permission-categories';
 import { PermissionGuard } from '../../common/guards/permission.guard';
 import {
   CreateRoleDto,
@@ -36,6 +41,7 @@ interface PrismaRole {
   code: string;
   description: string | null;
   isActive: boolean;
+  isSystem?: boolean;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
@@ -141,6 +147,9 @@ export class RoleService {
   ): Promise<RoleInfo> {
     const role = await this.prisma.role.findFirst({
       where: { id, deletedAt: null },
+      include: {
+        _count: { select: { rolePermissions: true, userRoles: true } },
+      },
     });
 
     if (!role) {
@@ -168,6 +177,17 @@ export class RoleService {
 
         // 更新权限关联
         if (dto.permissionIds !== undefined) {
+          // 先取出已有的数据范围配置：保存功能权限不应清掉「能看到哪些条」的设置
+          const prevScopes = await tx.rolePermission.findMany({
+            where: { roleId: id },
+            select: { permissionId: true, dataScope: true },
+          });
+          const scopeOf = new Map(
+            prevScopes
+              .filter((r) => r.dataScope)
+              .map((r) => [r.permissionId, r.dataScope as string]),
+          );
+
           // 删除旧关联
           await tx.rolePermission.deleteMany({
             where: { roleId: id },
@@ -180,6 +200,7 @@ export class RoleService {
                 roleId: id,
                 permissionId,
                 createdBy: userId,
+                dataScope: scopeOf.get(permissionId) ?? null,
               })),
             });
           }
@@ -189,6 +210,11 @@ export class RoleService {
       });
 
       this.logger.log(`角色更新成功: ${updatedRole.name}`);
+
+      // 角色/权限已变更：立即清除权限缓存，避免「改完要等 5 分钟才生效」。
+      // ⚠️ 必须写在 try 的 return 之前 —— 写在 try/catch 之后永远不会执行（死代码）。
+      await this.permissionGuard.clearRoleUsersCache(id);
+      PermissionGuard.clearAllCacheNow();
 
       return this.toRoleInfo(updatedRole);
     } catch (error: unknown) {
@@ -240,6 +266,8 @@ export class RoleService {
     });
 
     this.logger.log(`角色删除成功: ${role.name}`);
+    // 角色/权限已变更：立即清除权限缓存，避免「改完要等 5 分钟才生效」
+    PermissionGuard.clearAllCacheNow();
   }
 
   /**
@@ -290,6 +318,9 @@ export class RoleService {
         skip: (page - 1) * pageSize,
         take: pageSize,
         orderBy: { createdAt: 'desc' },
+        include: {
+          _count: { select: { rolePermissions: true, userRoles: true } },
+        },
       }),
 
       this.prisma.role.count({ where }),
@@ -361,6 +392,17 @@ export class RoleService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      // 先取出已有的数据范围配置：保存功能权限不应清掉「能看到哪些条」的设置
+      const prevScopes = await tx.rolePermission.findMany({
+        where: { roleId },
+        select: { permissionId: true, dataScope: true },
+      });
+      const scopeOf = new Map(
+        prevScopes
+          .filter((r) => r.dataScope)
+          .map((r) => [r.permissionId, r.dataScope as string]),
+      );
+
       // 删除旧关联
       await tx.rolePermission.deleteMany({
         where: { roleId },
@@ -373,6 +415,7 @@ export class RoleService {
             roleId,
             permissionId,
             createdBy: userId,
+            dataScope: scopeOf.get(permissionId) ?? null,
           })),
         });
       }
@@ -380,6 +423,8 @@ export class RoleService {
 
     await this.permissionGuard.clearRoleUsersCache(roleId);
     this.logger.log(`角色权限分配成功: ${role.name}`);
+    // 角色/权限已变更：立即清除权限缓存，避免「改完要等 5 分钟才生效」
+    PermissionGuard.clearAllCacheNow();
   }
 
   // ==================== 权限管理 ====================
@@ -596,7 +641,22 @@ export class RoleService {
       orderBy: [{ parentId: 'asc' }, { sortOrder: 'asc' }],
     });
 
-    return this.buildPermissionTree(permissions);
+    const tree = this.buildPermissionTree(permissions) as any[];
+
+    // 按「概览 → 业务类 → 工具类 → 系统类」分类排序（仅影响权限配置页展示）
+    for (const node of tree) {
+      const { category, order } = getPermissionCategory(node.code);
+      node.category = category;
+      node.categoryLabel = PERMISSION_CATEGORY_LABELS[category];
+      node.categoryOrder = PERMISSION_CATEGORY_ORDER.indexOf(category);
+      node.orderInCategory = order;
+    }
+    tree.sort(
+      (a, b) =>
+        a.categoryOrder - b.categoryOrder || a.orderInCategory - b.orderInCategory,
+    );
+
+    return tree as PermissionTreeNode[];
   }
 
   // ==================== 用户角色关联 ====================
@@ -653,6 +713,8 @@ export class RoleService {
     });
 
     this.logger.log(`用户角色分配成功: ${user.username}`);
+    // 角色/权限已变更：立即清除权限缓存，避免「改完要等 5 分钟才生效」
+    PermissionGuard.clearAllCacheNow();
   }
 
   /**
@@ -735,15 +797,21 @@ export class RoleService {
 
   // ==================== 私有方法 ====================
 
-  private toRoleInfo(role: PrismaRole): RoleInfo {
+  private toRoleInfo(
+    role: PrismaRole & {
+      _count?: { rolePermissions: number; userRoles: number };
+    },
+  ): RoleInfo {
     return {
       id: role.id,
       name: role.name,
       code: role.code,
       description: role.description ?? undefined,
       status: role.isActive ? RoleStatus.ACTIVE : RoleStatus.INACTIVE,
-      permissionCount: 0,
-      userCount: 0,
+      // 真实统计（此前硬编码为 0，导致角色详情永远显示 0）
+      permissionCount: role._count?.rolePermissions ?? 0,
+      userCount: role._count?.userRoles ?? 0,
+      isSystem: role.isSystem,
       createdAt: role.createdAt,
       updatedAt: role.updatedAt,
     };

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
 import { getFilePreviewUrl } from '@/lib/api';
@@ -39,6 +39,7 @@ import {
 import { Search, Plus, Download, Eye, Pencil, Trash2, Ban, Wallet } from 'lucide-react';
 import { PaymentForm } from './components/PaymentForm';
 import { PermissionGate } from '@/components/PermissionGate';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import { usePermissionStore } from '@/lib/stores/permission-store';
 import { toast } from 'sonner';
 import {
@@ -91,8 +92,18 @@ interface PaymentRecord {
   attachments?: PaymentAttachment[];
 }
 
-const GRID_COLS =
-  'grid grid-cols-[minmax(140px,1.5fr)_100px_150px_100px_minmax(130px,1.2fr)_90px_100px_110px_92px] items-center gap-x-4';
+/**
+ * 列表网格基础类。
+ * 具体列（顺序 / 宽度）由组件内 `listColumns` 按字段权限动态生成，
+ * 表头与数据行共用同一份定义，隐藏列后不会错位。
+ */
+const LIST_GRID_BASE = 'grid items-center gap-x-4';
+
+interface PaymentListColumn {
+  key: string;
+  width: string;
+  label: React.ReactNode;
+}
 
 // 判断是否为图片(否则按 PDF 处理)
 function isImage(name?: string): boolean {
@@ -102,7 +113,34 @@ function isImage(name?: string): boolean {
 }
 
 export default function PaymentsPage() {
+  const fp = useFieldPermissions('payment');
   const router = useRouter();
+
+  // ===== 字段级权限：列表列按 canView 动态生成（表头与数据行共用，隐藏列不错位） =====
+  const listColumns = useMemo<PaymentListColumn[]>(() => {
+    const cols: PaymentListColumn[] = [];
+    if (fp.canView('title'))
+      cols.push({ key: 'title', width: 'minmax(140px,1.5fr)', label: '款项名称' });
+    if (fp.canView('amount')) cols.push({ key: 'amount', width: '100px', label: '金额' });
+    if (fp.canView('paymentTime'))
+      cols.push({ key: 'paymentTime', width: '150px', label: '打款时间' });
+    if (fp.canView('paymentType'))
+      cols.push({ key: 'paymentType', width: '100px', label: '打款类型' });
+    if (fp.canView('receiverName'))
+      cols.push({ key: 'receiverName', width: 'minmax(130px,1.2fr)', label: '收款方' });
+    if (fp.canView('invoiceStatus'))
+      cols.push({ key: 'invoiceStatus', width: '90px', label: '发票状态' });
+    if (fp.canView('status')) cols.push({ key: 'status', width: '100px', label: '记录状态' });
+    // 「打款人」未登记字段权限，保持原样
+    cols.push({ key: 'payerName', width: '110px', label: '打款人' });
+    cols.push({ key: 'actions', width: '92px', label: '操作' });
+    return cols;
+  }, [fp]);
+  const listGridStyle = useMemo(
+    () => ({ gridTemplateColumns: listColumns.map((c) => c.width).join(' ') }),
+    [listColumns],
+  );
+
   const [records, setRecords] = useState<PaymentRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
@@ -427,16 +465,15 @@ export default function PaymentsPage() {
       {/* 列表 */}
       <Card>
         <div className="overflow-x-auto">
-          <div className={GRID_COLS + ' rounded-t-lg border-b border-border bg-[#2e2e2e] px-3 py-2 text-xs font-medium text-muted-foreground'}>
-            <span>款项名称</span>
-            <span>金额</span>
-            <span>打款时间</span>
-            <span>打款类型</span>
-            <span>收款方</span>
-            <span>发票状态</span>
-            <span>记录状态</span>
-            <span>打款人</span>
-            <span className="text-right">操作</span>
+          <div
+            className={LIST_GRID_BASE + ' rounded-t-lg border-b border-border bg-[#2e2e2e] px-3 py-2 text-xs font-medium text-muted-foreground'}
+            style={listGridStyle}
+          >
+            {listColumns.map((c) => (
+              <span key={c.key} className={c.key === 'actions' ? 'text-right' : undefined}>
+                {c.label}
+              </span>
+            ))}
           </div>
           {loading ? (
             <div className="p-8 text-center text-sm text-muted-foreground">加载中...</div>
@@ -444,30 +481,50 @@ export default function PaymentsPage() {
             <div className="p-8 text-center text-sm text-muted-foreground">暂无数据</div>
           ) : (
             records.map((r) => (
-              <div key={r.id} className={GRID_COLS + ' border-b border-border px-3 py-2.5 text-sm transition-colors hover:bg-[#2e2e2e]/50'}>
-                <span className="truncate">{r.title}</span>
-                <span className="font-medium">¥{Number(r.amount).toLocaleString()}</span>
-                <span className="text-muted-foreground">
-                  {new Date(r.paymentTime).toLocaleString('zh-CN')}
-                </span>
-                <span>{PAYMENT_TYPE_LABEL[r.paymentType] || r.paymentType}</span>
-                <span className="truncate">{r.receiverName || '-'}</span>
-                <span>{INVOICE_STATUS_LABEL[r.invoiceStatus] || r.invoiceStatus}</span>
-                <span>
-                  <span
-                    className={
-                      r.status === 'PAID'
-                        ? 'text-green-500'
-                        : r.status === 'FAILED'
-                          ? 'text-red-500'
-                          : r.status === 'CANCELLED'
-                            ? 'text-muted-foreground line-through'
-                            : 'text-yellow-500'
-                    }
-                  >
-                    {STATUS_LABEL[r.status]}
+              <div
+                key={r.id}
+                className={LIST_GRID_BASE + ' border-b border-border px-3 py-2.5 text-sm transition-colors hover:bg-[#2e2e2e]/50'}
+                style={listGridStyle}
+              >
+                {fp.canView('title') && <span className="truncate">{r.title}</span>}
+                {fp.canView('amount') && (
+                  <span className="font-medium">
+                    {`¥${Number(r.amount).toLocaleString()}`}
                   </span>
-                </span>
+                )}
+                {fp.canView('paymentTime') && (
+                  <span className="text-muted-foreground">
+                    {new Date(r.paymentTime).toLocaleString('zh-CN')}
+                  </span>
+                )}
+                {fp.canView('paymentType') && (
+                  <span>{PAYMENT_TYPE_LABEL[r.paymentType] || r.paymentType}</span>
+                )}
+                {fp.canView('receiverName') && (
+                  <span className="truncate">
+                    {r.receiverName || '-'}
+                  </span>
+                )}
+                {fp.canView('invoiceStatus') && (
+                  <span>{INVOICE_STATUS_LABEL[r.invoiceStatus] || r.invoiceStatus}</span>
+                )}
+                {fp.canView('status') && (
+                  <span>
+                    <span
+                      className={
+                        r.status === 'PAID'
+                          ? 'text-green-500'
+                          : r.status === 'FAILED'
+                            ? 'text-red-500'
+                            : r.status === 'CANCELLED'
+                              ? 'text-muted-foreground line-through'
+                              : 'text-yellow-500'
+                      }
+                    >
+                      {STATUS_LABEL[r.status]}
+                    </span>
+                  </span>
+                )}
                 <span>{r.payerName || '-'}</span>
                 <span className="flex justify-end gap-1">
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openDetail(r)}>
@@ -557,49 +614,55 @@ export default function PaymentsPage() {
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-[#409fff]">基本信息</h3>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-border p-3">
-                  <Field label="款项名称" value={detailRecord.title} />
-                  <Field label="流水号" value={detailRecord.recordNo} />
-                  <Field label="打款金额" value={`¥${Number(detailRecord.amount).toLocaleString()} ${CURRENCY_LABEL[detailRecord.currency] || detailRecord.currency}`} />
-                  <Field label="打款时间" value={new Date(detailRecord.paymentTime).toLocaleString('zh-CN')} />
-                  <Field label="打款类型" value={PAYMENT_TYPE_LABEL[detailRecord.paymentType] || detailRecord.paymentType} />
-                  <Field label="打款方式" value={PAY_METHOD_LABEL[detailRecord.payMethod] || detailRecord.payMethod} />
-                  <Field label="付款账户" value={detailRecord.fromAccount} />
+                  {fp.canView('title') && <Field label="款项名称" value={detailRecord.title} />}
+                  {fp.canView('recordNo') && <Field label="流水号" value={detailRecord.recordNo} />}
+                  {fp.canView('amount') && <Field label="打款金额" value={`¥${Number(detailRecord.amount).toLocaleString()} ${CURRENCY_LABEL[detailRecord.currency] || detailRecord.currency}`} />}
+                  {fp.canView('paymentTime') && <Field label="打款时间" value={new Date(detailRecord.paymentTime).toLocaleString('zh-CN')} />}
+                  {fp.canView('paymentType') && <Field label="打款类型" value={PAYMENT_TYPE_LABEL[detailRecord.paymentType] || detailRecord.paymentType} />}
+                  {fp.canView('payMethod') && <Field label="打款方式" value={PAY_METHOD_LABEL[detailRecord.payMethod] || detailRecord.payMethod} />}
+                  {fp.canView('fromAccount') && <Field label="付款账户" value={detailRecord.fromAccount} />}
                   <Field label="打款人" value={detailRecord.payerName || '-'} />
-                  <Field label="发票状态" value={INVOICE_STATUS_LABEL[detailRecord.invoiceStatus] || detailRecord.invoiceStatus} />
-                  <Field label="记录状态" value={STATUS_LABEL[detailRecord.status] || detailRecord.status} />
-                  <Field label="备注" value={detailRecord.remark} />
+                  {fp.canView('invoiceStatus') && <Field label="发票状态" value={INVOICE_STATUS_LABEL[detailRecord.invoiceStatus] || detailRecord.invoiceStatus} />}
+                  {fp.canView('status') && <Field label="记录状态" value={STATUS_LABEL[detailRecord.status] || detailRecord.status} />}
+                  {fp.canView('remark') && <Field label="备注" value={detailRecord.remark} />}
                 </div>
               </div>
 
               {/* 收款方 */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-[#409fff]">收款方</h3>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-border p-3">
-                  <Field label="收款方类型" value={RECEIVER_TYPE_LABEL[detailRecord.receiverType] || detailRecord.receiverType} />
-                  <Field label="收款方名称" value={detailRecord.receiverName || detailRecord.customReceiverName || '-'} />
+              {(fp.canView('receiverType') || fp.canView('receiverName')) && (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-[#409fff]">收款方</h3>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-border p-3">
+                    {fp.canView('receiverType') && <Field label="收款方类型" value={RECEIVER_TYPE_LABEL[detailRecord.receiverType] || detailRecord.receiverType} />}
+                    {fp.canView('receiverName') && <Field label="收款方名称" value={detailRecord.receiverName || detailRecord.customReceiverName || '-'} />}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* 票据 */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-[#409fff]">票据</h3>
-                {detailRecord.bills && detailRecord.bills.length > 0 ? (
-                  <div className="space-y-3">
-                    {detailRecord.bills.map((b: any, idx: number) => (
-                      <div key={idx} className="flex items-start gap-3 rounded-lg border border-border p-3">
-                        <FileThumb fileId={b.billFile?.id || b.billFileId} name={b.billFile?.name} />
-                        <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
-                          <Field label="票据编号" value={b.billNumber} />
-                          <Field label="票据日期" value={b.billDate ? new Date(b.billDate).toLocaleDateString('zh-CN') : '-'} />
-                          <Field label="票据金额" value={b.billAmount != null ? `¥${Number(b.billAmount).toLocaleString()}` : '-'} />
+              {(fp.canView('bill.billNumber') ||
+                fp.canView('bill.billDate') ||
+                fp.canView('bill.billAmount')) && (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-[#409fff]">票据</h3>
+                  {detailRecord.bills && detailRecord.bills.length > 0 ? (
+                    <div className="space-y-3">
+                      {detailRecord.bills.map((b: any, idx: number) => (
+                        <div key={idx} className="flex items-start gap-3 rounded-lg border border-border p-3">
+                          <FileThumb fileId={b.billFile?.id || b.billFileId} name={b.billFile?.name} />
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                            {fp.canView('bill.billNumber') && <Field label="票据编号" value={b.billNumber} />}
+                            {fp.canView('bill.billDate') && <Field label="票据日期" value={b.billDate ? new Date(b.billDate).toLocaleDateString('zh-CN') : '-'} />}
+                            {fp.canView('bill.billAmount') && <Field label="票据金额" value={b.billAmount != null ? `¥${Number(b.billAmount).toLocaleString()}` : '-'} />}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">暂无票据</p>
-                )}
-              </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">暂无票据</p>
+                  )}
+                </div>
+              )}
 
               {/* 附件：打款截图 + 发票 */}
               <div className="space-y-3">

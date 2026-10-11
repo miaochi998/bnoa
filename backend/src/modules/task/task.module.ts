@@ -8,6 +8,7 @@ import { UploadModule } from '../upload/upload.module';
 import { TaskService } from './task.service';
 import { TaskController } from './task.controller';
 import { AuthModule } from '../auth/auth.module';
+import { FieldPermissionModule } from '../role/field-permission.module';
 
 // 定时任务
 import { RecycleBinScheduler } from './schedulers/recycle-bin.scheduler';
@@ -40,6 +41,7 @@ import { NotificationProcessor } from './queues/notification.processor';
         StorageModule,
         AuthModule,
         UploadModule,
+        FieldPermissionModule,
         ScheduleModule.forRoot(),
         BullModule.forRootAsync({
             imports: [ConfigModule],

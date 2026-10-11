@@ -43,6 +43,7 @@ import { DictTag } from '@/components/shared/DictTag';
 import { SkuForm } from './components/SkuForm';
 import { PermissionGate } from '@/components/PermissionGate';
 import { EditableCell } from '@/components/shared/EditableCell';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import { usePermissionStore } from '@/lib/stores/permission-store';
 import {
     DndContext,
@@ -161,6 +162,7 @@ function SortableRow({
 }
 
 export default function SkusPage() {
+    const fp = useFieldPermissions('sku');
     const [skus, setSkus] = useState<Sku[]>([]);
     const [skuGroups, setSkuGroups] = useState<SkuGroup[]>([]);
     const [loading, setLoading] = useState(true);
@@ -289,6 +291,10 @@ export default function SkusPage() {
 
     // 更新SKU名称
     const handleUpdateName = async (id: string, newName: string) => {
+        if (!fp.canEdit('name')) {
+            alert('你没有「SKU名称」的编辑权限');
+            return;
+        }
         try {
             await apiClient.updateSku(id, { name: newName });
             // 更新本地列表
@@ -557,52 +563,81 @@ export default function SkusPage() {
                                                     <TableHeader>
                                                         <TableRow className="hover:bg-transparent border-[#1e1e1e]">
                                                             <TableHead className="text-[#8e8e8e] w-10">拖拽</TableHead>
-                                                            <TableHead className="text-[#8e8e8e]">SKU名称</TableHead>
-                                                            <TableHead className="text-[#8e8e8e]">类型</TableHead>
-                                                            <TableHead className="text-[#8e8e8e]">成品</TableHead>
-                                                            <TableHead className="text-[#8e8e8e] text-right">成品成本</TableHead>
-                                                            <TableHead className="text-[#8e8e8e] text-right">快递费</TableHead>
-                                                            <TableHead className="text-[#8e8e8e] text-right">总成本</TableHead>
-                                                            <TableHead className="text-[#8e8e8e]">状态</TableHead>
+                                                            {fp.canView('name') && (
+                                                                <TableHead className="text-[#8e8e8e]">SKU名称</TableHead>
+                                                            )}
+                                                            {fp.canView('type') && (
+                                                                <TableHead className="text-[#8e8e8e]">类型</TableHead>
+                                                            )}
+                                                            {fp.canView('finishedProducts') && (
+                                                                <TableHead className="text-[#8e8e8e]">成品</TableHead>
+                                                            )}
+                                                            {fp.canView('productCost') && (
+                                                                <TableHead className="text-[#8e8e8e] text-right">成品成本</TableHead>
+                                                            )}
+                                                            {fp.canView('expressCost') && (
+                                                                <TableHead className="text-[#8e8e8e] text-right">快递费</TableHead>
+                                                            )}
+                                                            {fp.canView('totalCost') && (
+                                                                <TableHead className="text-[#8e8e8e] text-right">总成本</TableHead>
+                                                            )}
+                                                            {fp.canView('status') && (
+                                                                <TableHead className="text-[#8e8e8e]">状态</TableHead>
+                                                            )}
                                                             <TableHead className="text-[#8e8e8e] text-right">操作</TableHead>
                                                         </TableRow>
                                                     </TableHeader>
                                                     <TableBody>
                                                         {group.skus.map((sku) => (
                                                             <SortableRow key={sku.id} id={sku.id} disabled={!canDrag}>
+                                                                {fp.canView('name') && (
                                                                 <TableCell className="font-medium text-white">
                                                                     <PermissionGate
                                                                         permission="sku:update"
-                                                                        fallback={<span>{sku.name}</span>}
+                                                                        fallback={<span>{sku.name ?? ''}</span>}
                                                                     >
                                                                         <EditableCell
                                                                             value={sku.name}
                                                                             onSave={(newValue) => handleUpdateName(sku.id, newValue)}
                                                                             placeholder="SKU名称"
                                                                             maxLength={100}
+                                                                            disabled={!fp.canEdit('name')}
                                                                         />
                                                                     </PermissionGate>
                                                                 </TableCell>
+                                                                )}
+                                                                {fp.canView('type') && (
                                                                 <TableCell>
                                                                     <DictTag typeCode="sku_type" value={sku.type} />
                                                                 </TableCell>
+                                                                )}
+                                                                {fp.canView('finishedProducts') && (
                                                                 <TableCell className="text-[#8e8e8e] max-w-[200px] truncate">
-                                                                    {sku.finishedProducts?.map((fp) =>
-                                                                        `${fp.finishedProduct.name}×${fp.quantity}`
+                                                                    {(sku.finishedProducts ?? []).map((fp) =>
+                                                                        `${fp.finishedProduct?.name ?? ''}×${fp.quantity}`
                                                                     ).join('、') || '-'}
                                                                 </TableCell>
+                                                                )}
+                                                                {fp.canView('productCost') && (
                                                                 <TableCell className="text-white text-right">
                                                                     {fmt(sku.productCost)}
                                                                 </TableCell>
+                                                                )}
+                                                                {fp.canView('expressCost') && (
                                                                 <TableCell className="text-white text-right">
                                                                     {fmt(sku.expressCost)}
                                                                 </TableCell>
+                                                                )}
+                                                                {fp.canView('totalCost') && (
                                                                 <TableCell className="text-[#409fff] font-medium text-right">
                                                                     {fmt(sku.totalCost)}
                                                                 </TableCell>
+                                                                )}
+                                                                {fp.canView('status') && (
                                                                 <TableCell>
                                                                     <DictTag typeCode="sku_status" value={sku.status} />
                                                                 </TableCell>
+                                                                )}
                                                                 <TableCell className="text-right">
                                                                     <div className="flex justify-end gap-1">
                                                                         <Button
@@ -612,9 +647,9 @@ export default function SkusPage() {
                                                                                 e.stopPropagation();
                                                                                 handleRecalculate(sku);
                                                                             }}
-                                                                            disabled={recalculating === sku.id}
+                                                                            disabled={recalculating === sku.id || !fp.canEdit('totalCost')}
                                                                             className="h-8 w-8 text-[#8e8e8e] hover:text-[#409fff] hover:bg-[#409fff]/10"
-                                                                            title="重算成本"
+                                                                            title={fp.canEdit('totalCost') ? '重算成本' : '无「总成本」编辑权限，无法重算'}
                                                                         >
                                                                             <RefreshCw className={`w-4 h-4 ${recalculating === sku.id ? 'animate-spin' : ''}`} />
                                                                         </Button>

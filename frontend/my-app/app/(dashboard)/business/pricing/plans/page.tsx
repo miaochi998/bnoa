@@ -33,6 +33,7 @@ import {
     Eye,
 } from 'lucide-react';
 import { PermissionGate } from '@/components/PermissionGate';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface SkuSummary {
     skuId: string;
@@ -80,6 +81,7 @@ interface LinkOption {
 }
 
 export default function PricingPlansPage() {
+    const fp = useFieldPermissions('pricing');
     const router = useRouter();
     const [plans, setPlans] = useState<PlanItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -290,15 +292,15 @@ export default function PricingPlansPage() {
                                             </button>
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="font-medium truncate">{plan.name}</span>
-                                                    {plan.skuSummaries && plan.skuSummaries.length > 0 && (
+                                                    <span className="font-medium truncate">{fp.canView('name') ? (plan.name ?? '') : '******'}</span>
+                                                    {fp.canView('skuSummaries') && plan.skuSummaries && plan.skuSummaries.length > 0 && (
                                                         <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                                                             {plan.skuSummaries.length} SKU
                                                         </span>
                                                     )}
                                                 </div>
                                                 <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                                                    {plan.productLink && (
+                                                    {fp.canView('linkId') && plan.productLink && (
                                                         <span className="truncate max-w-[240px]">
                                                             {plan.productLink.name}
                                                             {plan.productLink.shop && (
@@ -309,23 +311,27 @@ export default function PricingPlansPage() {
                                                         </span>
                                                     )}
                                                     <span className="shrink-0">{fmtDate(plan.createdAt)}</span>
-                                                    <span className="shrink-0">
-                                                        佣金率: {fmtPct(Number(plan.commissionRate))}
-                                                    </span>
-                                                    {Number(plan.taxRate || 0) > 0 && (
+                                                    {fp.canView('commissionRate') && (
+                                                        <span className="shrink-0">
+                                                            佣金率: {fmtPct(Number(plan.commissionRate))}
+                                                        </span>
+                                                    )}
+                                                    {fp.canView('taxRate') && Number(plan.taxRate || 0) > 0 && (
                                                         <span className="shrink-0">
                                                             税费率: {fmtPct(Number(plan.taxRate))}
                                                         </span>
                                                     )}
-                                                    {plan.talentCommissionRate != null && Number(plan.talentCommissionRate) > 0 && (
+                                                    {fp.canView('talentCommissionRate') && plan.talentCommissionRate != null && Number(plan.talentCommissionRate) > 0 && (
                                                         <span className="shrink-0">
                                                             达人佣金: {fmtPct(Number(plan.talentCommissionRate))}
                                                         </span>
                                                     )}
                                                 </div>
+                                                {fp.canView('profitRates') && (
                                                 <div className="text-xs text-muted-foreground mt-0.5">
                                                     利润率: {fmtRates(plan.profitRates)}
                                                 </div>
+                                                )}
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2 ml-3 shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -363,7 +369,7 @@ export default function PricingPlansPage() {
                                     </div>
 
                                     {/* 展开的 SKU 摘要表格 */}
-                                    {expandedIds.has(plan.id) && (
+                                    {expandedIds.has(plan.id) && fp.canView('skuSummaries') && (
                                         <div className="border-t border-border">
                                             {plan.skuSummaries && plan.skuSummaries.length > 0 ? (
                                                 <Table>

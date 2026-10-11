@@ -8,12 +8,13 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { MapPin, Save, RotateCcw } from 'lucide-react';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface Zone {
   id: string;
-  name: string;
+  name?: string;
   sortOrder: number;
-  provinces: string[];
+  provinces?: string[];
 }
 
 interface ZoneConfigPanelProps {
@@ -32,6 +33,7 @@ const ALL_PROVINCES = [
 ];
 
 export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
+  const fp = useFieldPermissions('express');
   const [zones, setZones] = useState<Zone[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -50,7 +52,7 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
       setZones(data);
       if (data.length > 0 && !selectedZone) {
         setSelectedZone(data[0]);
-        setSelectedProvinces(data[0].provinces);
+        setSelectedProvinces(data[0].provinces ?? []);
       }
     } catch (error: any) {
       alert('加载区域配置失败: ' + error.message);
@@ -64,7 +66,7 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
     const map = new Map<string, string>();
     zones.forEach((zone) => {
       if (zone.id !== selectedZone?.id) {
-        zone.provinces.forEach((p) => map.set(p, zone.name));
+        (zone.provinces ?? []).forEach((p) => map.set(p, zone.name ?? ''));
       }
     });
     return map;
@@ -73,7 +75,7 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
   // 选择区域
   const handleSelectZone = (zone: Zone) => {
     setSelectedZone(zone);
-    setSelectedProvinces(zone.provinces);
+    setSelectedProvinces(zone.provinces ?? []);
   };
 
   // 切换省份选择
@@ -89,6 +91,10 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
   // 保存区域配置
   const handleSave = async () => {
     if (!selectedZone) return;
+    if (!fp.canEdit('zone.provinces')) {
+      alert('你没有「包含省份」的编辑权限');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -107,7 +113,7 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
   // 重置
   const handleReset = () => {
     if (selectedZone) {
-      setSelectedProvinces(selectedZone.provinces);
+      setSelectedProvinces(selectedZone.provinces ?? []);
     }
   };
 
@@ -142,26 +148,38 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
                   className="w-full justify-start"
                   onClick={() => handleSelectZone(zone)}
                 >
-                  <span className="flex-1 text-left">{zone.name}</span>
-                  <Badge variant="secondary" className="ml-2">
-                    {zone.provinces.length}
-                  </Badge>
+                  <span className="flex-1 text-left">
+                    {fp.canView('zone.name') ? (zone.name ?? '') : '******'}
+                  </span>
+                  {fp.canView('zone.provinces') && (
+                    <Badge variant="secondary" className="ml-2">
+                      {(zone.provinces ?? []).length}
+                    </Badge>
+                  )}
                 </Button>
               ))}
             </div>
 
             {/* 省份选择 */}
             <div className="flex-1">
+              {!fp.canView('zone.provinces') ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  你没有「包含省份」的查看权限
+                </div>
+              ) : (
+                <>
               <div className="flex items-center justify-between mb-4">
                 <h4 className="text-sm font-medium text-muted-foreground">
-                  {selectedZone ? `${selectedZone.name} - 包含省份` : '选择省份'}
+                  {selectedZone
+                    ? `${fp.canView('zone.name') ? (selectedZone.name ?? '') : '******'} - 包含省份`
+                    : '选择省份'}
                 </h4>
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={handleReset}
-                    disabled={!selectedZone}
+                    disabled={!selectedZone || !fp.canEdit('zone.provinces')}
                   >
                     <RotateCcw className="w-4 h-4 mr-1" />
                     重置
@@ -169,7 +187,7 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
                   <Button
                     size="sm"
                     onClick={handleSave}
-                    disabled={!selectedZone || saving}
+                    disabled={!selectedZone || saving || !fp.canEdit('zone.provinces')}
                   >
                     <Save className="w-4 h-4 mr-1" />
                     {saving ? '保存中...' : '保存'}
@@ -181,7 +199,7 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={!selectedZone}
+                  disabled={!selectedZone || !fp.canEdit('zone.provinces')}
                   onClick={() => {
                     const available = ALL_PROVINCES.filter(p => !occupiedProvinces.has(p));
                     setSelectedProvinces(available);
@@ -192,7 +210,7 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={!selectedZone}
+                  disabled={!selectedZone || !fp.canEdit('zone.provinces')}
                   onClick={() => {
                     const available = ALL_PROVINCES.filter(p => !occupiedProvinces.has(p));
                     setSelectedProvinces(prev => {
@@ -218,11 +236,15 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
                         id={`province-${province}`}
                         checked={selectedProvinces.includes(province)}
                         onCheckedChange={() => handleToggleProvince(province)}
-                        disabled={!selectedZone || occupiedProvinces.has(province)}
+                        disabled={
+                          !selectedZone ||
+                          occupiedProvinces.has(province) ||
+                          !fp.canEdit('zone.provinces')
+                        }
                       />
                       <label
                         htmlFor={`province-${province}`}
-                        className={`text-sm ${occupiedProvinces.has(province) ? 'text-muted-foreground/50 line-through cursor-not-allowed' : 'cursor-pointer'}`}
+                        className={`text-sm ${occupiedProvinces.has(province) || !fp.canEdit('zone.provinces') ? 'text-muted-foreground/50 line-through cursor-not-allowed' : 'cursor-pointer'}`}
                         title={occupiedProvinces.has(province) ? `已被「${occupiedProvinces.get(province)}」占用` : undefined}
                       >
                         {province}
@@ -235,6 +257,8 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
               <div className="mt-4 text-sm text-muted-foreground">
                 已选择 {selectedProvinces.length} 个省份
               </div>
+                </>
+              )}
             </div>
           </div>
         </CardContent>

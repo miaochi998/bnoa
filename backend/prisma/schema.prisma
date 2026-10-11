@@ -81,6 +81,7 @@ model Role {
   updatedBy       String?          @map("updated_by")
   folderShares    FolderShare[]
   rolePermissions RolePermission[]
+  fieldPermissions RoleFieldPermission[]
   userRoles       UserRole[]
 
   @@index([code])
@@ -141,6 +142,25 @@ model RolePermission {
   @@id([roleId, permissionId])
   @@index([permissionId])
   @@map("role_permissions")
+}
+
+/// 角色的字段级权限：决定某角色在某模块中，每个字段能否查看 / 能否编辑。
+/// 表中无记录 = 采用字段注册表的 defaultVisible（可见），编辑权沿用模块级动作权限。
+model RoleFieldPermission {
+  roleId    String   @map("role_id")
+  module    String   @db.VarChar(50)
+  field     String   @db.VarChar(100)
+  canView   Boolean  @default(false) @map("can_view")
+  canEdit   Boolean  @default(false) @map("can_edit")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  createdBy String?  @map("created_by")
+  updatedBy String?  @map("updated_by")
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, module, field])
+  @@index([module])
+  @@map("role_field_permissions")
 }
 
 model File {
@@ -734,6 +754,8 @@ model FinishedProductLabor {
   id                String          @id @default(uuid()) @db.Uuid
   finishedProductId String          @map("finished_product_id") @db.Uuid
   laborTypeId       String          @map("labor_type_id") @db.Uuid
+  /// 该工种在此成品中需要做的次数（默认 1 次；此前缺失导致工费成本算少）
+  quantity          Int             @default(1)
   finishedProduct   FinishedProduct @relation(fields: [finishedProductId], references: [id], onDelete: Cascade)
   laborType         LaborType       @relation(fields: [laborTypeId], references: [id])
 
@@ -1777,7 +1799,6 @@ enum SharePermission {
 
 enum ShopStatus {
   ACTIVE
-  REST
   CLOSED
 
   @@map("shop_status")

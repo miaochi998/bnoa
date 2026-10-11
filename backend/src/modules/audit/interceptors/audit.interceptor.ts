@@ -60,7 +60,7 @@ export class AuditInterceptor implements NestInterceptor {
             description: this.generateDescription(action, resource, body),
             requestUrl: originalUrl,
             requestMethod: method,
-            requestParams: JSON.stringify(body),
+            requestParams: this.sanitizeBody(body),
             ip: this.getClientIp(request),
             userAgent,
             executionTime,
@@ -77,7 +77,7 @@ export class AuditInterceptor implements NestInterceptor {
             description: this.generateDescription(action, resource, body),
             requestUrl: originalUrl,
             requestMethod: method,
-            requestParams: JSON.stringify(body),
+            requestParams: this.sanitizeBody(body),
             ip: this.getClientIp(request),
             userAgent,
             executionTime,
@@ -130,13 +130,47 @@ export class AuditInterceptor implements NestInterceptor {
         action = AuditAction.DELETE;
         break;
       case 'GET':
-        action = AuditAction.VIEW;
+        // GET 请求量极大（列表刷新、轮询），逐条记录会让日志表爆炸；
+        // 仅记录「导出」这类有实际意义的读操作。
+        action = url.includes('/export') ? AuditAction.EXPORT : null;
         break;
       default:
         action = null;
     }
 
     return { action, module, resource };
+  }
+
+  /**
+   * 请求体脱敏：密钥/密码类字段替换为 ***，并限制长度
+   * （审计日志不应该把明文口令写进数据库）
+   */
+  private sanitizeBody(body: any): string {
+    if (!body || typeof body !== 'object') return '';
+    const SENSITIVE = [
+      'password',
+      'passwd',
+      'secret',
+      'secretkey',
+      'accesskey',
+      'token',
+      'apikey',
+      'authorization',
+    ];
+    try {
+      const json = JSON.stringify(body, (key, value) => {
+        if (
+          key &&
+          SENSITIVE.some((s) => key.toLowerCase().includes(s))
+        ) {
+          return '***';
+        }
+        return value;
+      });
+      return json && json.length > 2000 ? json.slice(0, 2000) + '...(已截断)' : (json ?? '');
+    } catch {
+      return '';
+    }
   }
 
   /**

@@ -2,9 +2,10 @@ import { Module } from '@nestjs/common';
 import { SupplierService } from './supplier.service';
 import { SupplierController } from './supplier.controller';
 import { AuthModule } from '../auth/auth.module';
+import { RoleModule } from '../role/role.module';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, RoleModule],
   controllers: [SupplierController],
   providers: [SupplierService],
   exports: [SupplierService],

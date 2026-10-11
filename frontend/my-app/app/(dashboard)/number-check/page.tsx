@@ -52,6 +52,8 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { PermissionGate } from '@/components/PermissionGate';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
+import { DataScopeNotice } from './_components/DataScopeNotice';
 import type { DedupResultItem, ImportSheet } from '@/types/number-check';
 
 function splitCodes(text: string): string[] {
@@ -62,6 +64,8 @@ function splitCodes(text: string): string[] {
 }
 
 export default function NumberCheckPage() {
+  // 字段级权限（模块 number-check）：batchNo / fileId / totalCount / code / isDuplicate
+  const fp = useFieldPermissions('number-check');
   const [inputText, setInputText] = useState('');
   const [codes, setCodes] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -234,13 +238,18 @@ export default function NumberCheckPage() {
         </PermissionGate>
       </div>
 
+      {/* 数据范围提示（dataScope 非 ALL 时才显示，数据本身已由后端过滤） */}
+      <DataScopeNotice module="number-check" />
+
       {/* 统计卡片 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: '历史编号总数', value: stats?.totalRecords ?? 0 },
           { label: '今日入库数', value: stats?.todayCreated ?? 0 },
           { label: '今日重复命中', value: stats?.todayDupHits ?? 0 },
-          { label: '最近批次', value: stats?.recentBatchNo || '--' },
+          ...(fp.canView('batchNo')
+            ? [{ label: '最近批次', value: stats?.recentBatchNo || '--' }]
+            : []),
         ].map((c) => (
           <Card key={c.label}>
             <CardContent className="p-4">
@@ -351,37 +360,43 @@ export default function NumberCheckPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>编号</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>历史命中</TableHead>
+                    {fp.canView('code') && <TableHead>编号</TableHead>}
+                    {fp.canView('isDuplicate') && <TableHead>状态</TableHead>}
+                    {fp.canView('batchNo') && <TableHead>历史命中</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {repeatItems.map((r) => (
                     <TableRow key={r.code}>
-                      <TableCell className="font-mono">{r.code}</TableCell>
-                      <TableCell>
-                        <span className="text-destructive">重复</span>
-                        {r.intraBatchDuplicate && (
-                          <Badge variant="outline" className="ml-2 text-warning">
-                            同批重复
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="max-w-[480px]">
-                        {r.matches?.length > 0 ? (
-                          <div className="space-y-1">
-                            {r.matches.map((m) => (
-                              <div key={m.id} className="text-xs text-muted-foreground">
-                                {m.batchNo} · {new Date(m.importedAt).toLocaleString()} ·{' '}
-                                {m.isSettled ? '已结算' : '未结算'} · {m.remark || '-'}
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">-</span>
-                        )}
-                      </TableCell>
+                      {fp.canView('code') && (
+                        <TableCell className="font-mono">{r.code}</TableCell>
+                      )}
+                      {fp.canView('isDuplicate') && (
+                        <TableCell>
+                          <span className="text-destructive">重复</span>
+                          {r.intraBatchDuplicate && (
+                            <Badge variant="outline" className="ml-2 text-warning">
+                              同批重复
+                            </Badge>
+                          )}
+                        </TableCell>
+                      )}
+                      {fp.canView('batchNo') && (
+                        <TableCell className="max-w-[480px]">
+                          {r.matches?.length > 0 ? (
+                            <div className="space-y-1">
+                              {r.matches.map((m) => (
+                                <div key={m.id} className="text-xs text-muted-foreground">
+                                  {m.batchNo} · {new Date(m.importedAt).toLocaleString()} ·{' '}
+                                  {m.isSettled ? '已结算' : '未结算'} · {m.remark || '-'}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">-</span>
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>

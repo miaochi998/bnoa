@@ -47,10 +47,15 @@ import { MulterFile } from './interfaces/multer-file.interface';
 /**
  * 上传控制器
  * 提供文件上传相关的 REST API
+ *
+ * 2026-10-12 补锁：此前类级只挂 JwtAuthGuard、全部接口无权限码，
+ * 任意登录用户都能上传并写入 files 表 / 占用对象存储。
+ * 现统一要求 file:upload（已授予 operator / user / super_admin，不会锁死现有用户）。
  */
 @ApiTags('上传服务')
 @Controller('upload')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
+@Permissions('file:upload')
 @ApiBearerAuth()
 export class UploadController {
   constructor(

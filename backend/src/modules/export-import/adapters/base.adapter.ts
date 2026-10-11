@@ -45,11 +45,28 @@ export abstract class BaseExportAdapter {
         userId: string,
     ): Promise<void>;
 
+    /**
+     * 该字段是否应在本次导出中隐藏
+     *
+     * @param hiddenFields 本次导出「因字段级权限而不可见」的字段集合
+     *   —— 由导出流程按「当前用户 + 该模块」的字段权限算好，按参数传入。
+     *   ⚠️ 刻意不放在实例属性上：适配器是共享单例，存状态会在并发导出时互相覆盖。
+     */
+    protected isFieldHidden(
+        field: string,
+        hiddenFields?: Set<string>,
+    ): boolean {
+        return (
+            this.sensitiveFields.includes(field) ||
+            (hiddenFields ? hiddenFields.has(field) : false)
+        );
+    }
+
     /** 格式化一行数据用于导出 */
-    formatRow(row: any): Record<string, any> {
+    formatRow(row: any, hiddenFields?: Set<string>): Record<string, any> {
         const result: Record<string, any> = {};
         for (const col of this.columns) {
-            if (this.sensitiveFields.includes(col.field)) {
+            if (this.isFieldHidden(col.field, hiddenFields)) {
                 continue;
             }
             const value = row[col.field];
@@ -61,26 +78,16 @@ export abstract class BaseExportAdapter {
     }
 
     /** 获取导出表头 */
-    getHeaders(): string[] {
+    getHeaders(hiddenFields?: Set<string>): string[] {
         return this.columns
-            .filter(
-                (c) =>
-                    !this.sensitiveFields.includes(
-                        c.field,
-                    ),
-            )
+            .filter((c) => !this.isFieldHidden(c.field, hiddenFields))
             .map((c) => c.header);
     }
 
     /** 获取列宽配置 */
-    getColumnWidths(): number[] {
+    getColumnWidths(hiddenFields?: Set<string>): number[] {
         return this.columns
-            .filter(
-                (c) =>
-                    !this.sensitiveFields.includes(
-                        c.field,
-                    ),
-            )
+            .filter((c) => !this.isFieldHidden(c.field, hiddenFields))
             .map((c) => c.width || 15);
     }
 }

@@ -21,6 +21,7 @@ import { Plus, Search, Edit, Trash2, Building2, GripVertical } from 'lucide-reac
 import { ConsumableSupplierForm } from './components/ConsumableSupplierForm';
 import { PermissionGate } from '@/components/PermissionGate';
 import { EditableCell } from '@/components/shared/EditableCell';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import {
     DndContext,
     closestCenter,
@@ -88,6 +89,7 @@ interface ConsumableSupplier {
 }
 
 export default function ConsumableSuppliersPage() {
+    const fp = useFieldPermissions('consumable');
     const [list, setList] = useState<ConsumableSupplier[]>([]);
     const [loading, setLoading] = useState(true);
     const [keyword, setKeyword] = useState('');
@@ -199,6 +201,11 @@ export default function ConsumableSuppliersPage() {
 
     // 更新耗材供应商字段
     const handleUpdateField = async (id: string, field: 'name' | 'contact' | 'phone' | 'remark', newValue: string) => {
+        const fieldKey = `supplier.${field}`;
+        if (!fp.canEdit(fieldKey)) {
+            alert('你没有该供应商字段的编辑权限');
+            return;
+        }
         try {
             await apiClient.updateConsumableSupplier(id, { [field]: newValue || null });
             // 更新本地列表
@@ -303,34 +310,52 @@ export default function ConsumableSuppliersPage() {
                                     <TableHeader>
                                         <TableRow className="border-[#1e1e1e] hover:bg-transparent">
                                             <TableHead className="text-[#8e8e8e] w-10">拖拽</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">编码</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">名称</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">联系人</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">联系电话</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">状态</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">备注</TableHead>
+                                            {fp.canView('supplier.code') && (
+                                                <TableHead className="text-[#8e8e8e]">编码</TableHead>
+                                            )}
+                                            {fp.canView('supplier.name') && (
+                                                <TableHead className="text-[#8e8e8e]">名称</TableHead>
+                                            )}
+                                            {fp.canView('supplier.contact') && (
+                                                <TableHead className="text-[#8e8e8e]">联系人</TableHead>
+                                            )}
+                                            {fp.canView('supplier.phone') && (
+                                                <TableHead className="text-[#8e8e8e]">联系电话</TableHead>
+                                            )}
+                                            {fp.canView('supplier.status') && (
+                                                <TableHead className="text-[#8e8e8e]">状态</TableHead>
+                                            )}
+                                            {fp.canView('supplier.remark') && (
+                                                <TableHead className="text-[#8e8e8e]">备注</TableHead>
+                                            )}
                                             <TableHead className="text-[#8e8e8e] text-right">操作</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {list.map((item) => (
                                             <SortableRow key={item.id} id={item.id}>
+                                                {fp.canView('supplier.code') && (
                                                 <TableCell className="font-medium text-white">
-                                                    {item.code}
+                                                    {item.code ?? ''}
                                                 </TableCell>
+                                                )}
+                                                {fp.canView('supplier.name') && (
                                                 <TableCell className="text-white">
                                                     <PermissionGate
                                                         permission="consumable-supplier:update"
-                                                        fallback={<span>{item.name}</span>}
+                                                        fallback={<span>{item.name ?? ''}</span>}
                                                     >
                                                         <EditableCell
                                                             value={item.name}
                                                             onSave={(newValue) => handleUpdateField(item.id, 'name', newValue)}
                                                             placeholder="供应商名称"
                                                             maxLength={100}
+                                                            disabled={!fp.canEdit('supplier.name')}
                                                         />
                                                     </PermissionGate>
                                                 </TableCell>
+                                                )}
+                                                {fp.canView('supplier.contact') && (
                                                 <TableCell className="text-[#8e8e8e]">
                                                     <PermissionGate
                                                         permission="consumable-supplier:update"
@@ -341,9 +366,12 @@ export default function ConsumableSuppliersPage() {
                                                             onSave={(newValue) => handleUpdateField(item.id, 'contact', newValue)}
                                                             placeholder="联系人"
                                                             maxLength={50}
+                                                            disabled={!fp.canEdit('supplier.contact')}
                                                         />
                                                     </PermissionGate>
                                                 </TableCell>
+                                                )}
+                                                {fp.canView('supplier.phone') && (
                                                 <TableCell className="text-[#8e8e8e]">
                                                     <PermissionGate
                                                         permission="consumable-supplier:update"
@@ -355,14 +383,19 @@ export default function ConsumableSuppliersPage() {
                                                             placeholder="联系电话"
                                                             type="tel"
                                                             maxLength={20}
+                                                            disabled={!fp.canEdit('supplier.phone')}
                                                         />
                                                     </PermissionGate>
                                                 </TableCell>
+                                                )}
+                                                {fp.canView('supplier.status') && (
                                                 <TableCell>
                                                     <span className={`px-2 py-1 rounded text-xs ${getStatusClass(item.status)}`}>
                                                         {getStatusText(item.status)}
                                                     </span>
                                                 </TableCell>
+                                                )}
+                                                {fp.canView('supplier.remark') && (
                                                 <TableCell className="text-[#8e8e8e]">
                                                     <PermissionGate
                                                         permission="consumable-supplier:update"
@@ -373,9 +406,11 @@ export default function ConsumableSuppliersPage() {
                                                             onSave={(newValue) => handleUpdateField(item.id, 'remark', newValue)}
                                                             placeholder="备注"
                                                             maxLength={200}
+                                                            disabled={!fp.canEdit('supplier.remark')}
                                                         />
                                                     </PermissionGate>
                                                 </TableCell>
+                                                )}
                                                 <TableCell className="text-right">
                                                     <div className="flex justify-end gap-2">
                                                         <PermissionGate permission="consumable-supplier:update">

@@ -8,8 +8,10 @@ import { RichTextEditor } from '@/components/shared/RichTextEditor';
 import { ArrowLeft, Save } from 'lucide-react';
 import { notebookAPI, Notebook } from '@/lib/api';
 import { toast } from 'sonner';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 export default function EditNotebookPage() {
+    const fp = useFieldPermissions('notebook');
     const router = useRouter();
     const params = useParams();
     const id = params.id as string;
@@ -40,7 +42,7 @@ export default function EditNotebookPage() {
     };
 
     const handleSave = async () => {
-        if (!title.trim()) {
+        if (fp.canEdit('title') && !title.trim()) {
             toast.error('请输入标题');
             return;
         }
@@ -51,14 +53,23 @@ export default function EditNotebookPage() {
                     (child: any) => child.text?.trim(),
                 ),
         );
-        if (!hasText) {
+        if (fp.canEdit('content') && !hasText) {
             toast.error('请输入内容');
+            return;
+        }
+
+        // 只提交「可编辑」字段
+        const payload: any = {};
+        if (fp.canEdit('title')) payload.title = title;
+        if (fp.canEdit('content')) payload.content = content;
+        if (Object.keys(payload).length === 0) {
+            toast.error('你没有记事本字段的编辑权限');
             return;
         }
 
         try {
             setSaving(true);
-            await notebookAPI.updateNotebook(id, { title, content });
+            await notebookAPI.updateNotebook(id, payload);
             toast.success('保存成功');
             router.push('/notebook');
         } catch (error: any) {

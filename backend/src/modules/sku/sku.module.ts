@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
+import { RoleModule } from '../role/role.module';
 import { SkuService } from './sku.service';
 import { SkuController } from './sku.controller';
 import { AuthModule } from '../auth/auth.module';
 import { ExpressModule } from '../express/express.module';
 
 @Module({
-  imports: [AuthModule, ExpressModule],
+  imports: [AuthModule, ExpressModule, RoleModule],
   controllers: [SkuController],
   providers: [SkuService],
   exports: [SkuService],

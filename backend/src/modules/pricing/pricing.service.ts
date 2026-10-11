@@ -129,11 +129,16 @@ export class PricingService {
 
     // ==================== 方案 CRUD ====================
 
+    /**
+     * 保存定价方案
+     * @param allowedShopIds 数据范围限定：非空时目标链接必须属于可见店铺
+     */
     async savePlan(
         dto: SavePricingPlanDto,
         userId: string,
+        allowedShopIds?: string[],
     ) {
-        await this.validateLink(dto.linkId);
+        await this.validateLink(dto.linkId, allowedShopIds);
 
         const plan =
             await this.prisma.pricingPlan.create({
@@ -165,8 +170,9 @@ export class PricingService {
         id: string,
         dto: UpdatePricingPlanDto,
         userId: string,
+        allowedShopIds?: string[],
     ) {
-        await this.findPlanById(id);
+        await this.findPlanById(id, allowedShopIds);
 
         const updateData: any = {
             updatedBy: userId,
@@ -199,8 +205,12 @@ export class PricingService {
         return plan;
     }
 
-    async deletePlan(id: string, userId: string) {
-        const plan = await this.findPlanById(id);
+    /**
+     * 删除定价方案
+     * @param allowedShopIds 数据范围限定：越权等同不存在（404）
+     */
+    async deletePlan(id: string, userId: string, allowedShopIds?: string[]) {
+        const plan = await this.findPlanById(id, allowedShopIds);
 
         await this.prisma.pricingPlan.update({
             where: { id },
@@ -215,10 +225,21 @@ export class PricingService {
         );
     }
 
-    async findPlanById(id: string) {
+    /**
+     * 定价方案详情
+     * @param allowedShopIds 数据范围限定（经 链接→店铺）：越权等同不存在（404）
+     */
+    async findPlanById(id: string, allowedShopIds?: string[]) {
         const plan =
             await this.prisma.pricingPlan.findFirst({
-                where: { id, deletedAt: null },
+                where: {
+                    AND: [
+                        { id, deletedAt: null },
+                        ...(allowedShopIds
+                            ? [{ productLink: { shopId: { in: allowedShopIds } } }]
+                            : []),
+                    ],
+                },
                 include: PLAN_INCLUDE,
             });
         if (!plan) {
@@ -229,13 +250,24 @@ export class PricingService {
         return plan;
     }
 
-    async findAllPlans(query: PricingPlanQueryDto) {
+        /**
+     * 定价方案列表
+     * @param allowedShopIds 数据范围限定：非空时只看这些店铺下的方案（经 链接→店铺 归属）
+     */
+    async findAllPlans(
+        query: PricingPlanQueryDto,
+        allowedShopIds?: string[],
+    ) {
         const { keyword, linkId } = query;
         const page = query.page ?? 1;
         const pageSize = query.pageSize ?? 10;
         const withSummary = query.withSummary ?? false;
 
         const where: any = { deletedAt: null };
+        // 数据范围限定：运营只能看到自己负责店铺的定价方案
+        if (allowedShopIds) {
+            where.productLink = { shopId: { in: allowedShopIds } };
+        }
 
         if (linkId) where.linkId = linkId;
         if (keyword) {
@@ -348,11 +380,16 @@ export class PricingService {
 
     // ==================== 辅助 ====================
 
-    async getLinksForSelect() {
+    /**
+     * 链接下拉
+     * @param allowedShopIds 数据范围限定：非空时只返回可见店铺下的链接
+     */
+    async getLinksForSelect(allowedShopIds?: string[]) {
         return this.prisma.productLink.findMany({
             where: {
                 deletedAt: null,
                 status: { in: ['DRAFT', 'ON_SALE'] },
+                ...(allowedShopIds ? { shopId: { in: allowedShopIds } } : {}),
             },
             select: {
                 id: true,
@@ -377,8 +414,8 @@ export class PricingService {
 
     // ==================== 私有方法 ====================
 
-    private async getSkusByLink(linkId: string) {
-        await this.validateLink(linkId);
+    private async getSkusByLink(linkId: string, allowedShopIds?: string[]) {
+        await this.validateLink(linkId, allowedShopIds);
 
         return this.prisma.sku.findMany({
             where: {
@@ -414,12 +451,20 @@ export class PricingService {
         });
     }
 
-    private async validateLink(linkId: string) {
+    /**
+     * 校验链接存在
+     * @param allowedShopIds 数据范围限定：非空时链接必须属于可见店铺
+     */
+    private async validateLink(linkId: string, allowedShopIds?: string[]) {
         const link =
             await this.prisma.productLink.findFirst({
                 where: {
-                    id: linkId,
-                    deletedAt: null,
+                    AND: [
+                        { id: linkId, deletedAt: null },
+                        ...(allowedShopIds
+                            ? [{ shopId: { in: allowedShopIds } }]
+                            : []),
+                    ],
                 },
             });
         if (!link) {

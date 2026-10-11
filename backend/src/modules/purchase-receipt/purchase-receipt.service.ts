@@ -479,13 +479,21 @@ export class PurchaseReceiptService {
         await this.prisma.$transaction(async (tx) => {
             await tx.purchaseReceipt.update({
                 where: { id },
+                // ⚠️ 「仅在传入时更新」：被字段权限剔除的字段不能被写成 null，
+                // 否则无权编辑某字段的用户一保存就会把该字段清空。
                 data: {
-                    receiptTime,
-                    billNo,
-                    billNoSource,
-                    billAmount: dto.billAmount ?? null,
-                    isAccurate: dto.isAccurate ?? true,
-                    remark: dto.remark?.trim() || null,
+                    ...(dto.receiptTime !== undefined ? { receiptTime } : {}),
+                    ...(dto.billNo !== undefined ? { billNo } : {}),
+                    ...(dto.billNoSource !== undefined ? { billNoSource } : {}),
+                    ...(dto.billAmount !== undefined
+                        ? { billAmount: dto.billAmount ?? null }
+                        : {}),
+                    ...(dto.isAccurate !== undefined
+                        ? { isAccurate: dto.isAccurate }
+                        : {}),
+                    ...(dto.remark !== undefined
+                        ? { remark: dto.remark?.trim() || null }
+                        : {}),
                     updatedBy: userId,
                 },
             });
@@ -528,7 +536,10 @@ export class PurchaseReceiptService {
 
     // ==================== 导出 ====================
 
-    async export(query: QueryPurchaseReceiptDto): Promise<StreamableFile> {
+    async export(
+        query: QueryPurchaseReceiptDto,
+        hiddenFieldKeys: Set<string> = new Set(),
+    ): Promise<StreamableFile> {
         const where = this.buildWhere(query);
         const rows = await this.prisma.purchaseReceipt.findMany({
             where,
@@ -559,6 +570,21 @@ export class PurchaseReceiptService {
 
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet('进货入库记录');
+        // 导出列 → 字段权限注册表的字段标识（未登记的列一律保留）
+        const columnFields: Record<string, string> = {
+            receiptNo: 'receiptNo',
+            receiptTime: 'receiptTime',
+            itemType: 'item.itemType',
+            itemName: 'item.itemName',
+            supplierName: 'item.supplierName',
+            specName: 'item.specName',
+            quantityText: 'item.quantityText',
+            billAmount: 'billAmount',
+            billNo: 'billNo',
+            checkerName: 'checkerId',
+            isAccurate: 'isAccurate',
+            remark: 'remark',
+        };
         sheet.columns = [
             { header: '入库单号', key: 'receiptNo', width: 20 },
             { header: '入库日期', key: 'receiptTime', width: 18 },
@@ -578,7 +604,10 @@ export class PurchaseReceiptService {
             { header: '备注', key: 'remark', width: 28 },
             { header: '创建人', key: 'createdByName', width: 12 },
             { header: '创建时间', key: 'createdAt', width: 18 },
-        ];
+        ].filter((col) => {
+            const field = columnFields[col.key];
+            return !field || !hiddenFieldKeys.has(field);
+        });
         sheet.getRow(1).font = { bold: true };
 
         for (const r of decorated) {

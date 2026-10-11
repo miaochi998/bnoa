@@ -41,12 +41,21 @@ export class ProductLinkService {
 
     // ==================== CRUD ====================
 
-    async findAll(query: QueryProductLinkDto) {
+    /**
+     * 链接列表
+     * @param allowedShopIds 数据范围限定：非空时只看这些店铺的链接
+     */
+    async findAll(query: QueryProductLinkDto, allowedShopIds?: string[]) {
         const { keyword, shopId, status } = query;
         const page = query.page ?? 1;
         const pageSize = query.pageSize ?? 10;
 
         const where: any = { deletedAt: null };
+
+        // 数据范围限定：运营只能看到自己负责店铺的链接
+        if (allowedShopIds) {
+            where.shopId = { in: allowedShopIds };
+        }
 
         if (keyword) {
             where.name = {
@@ -102,10 +111,16 @@ export class ProductLinkService {
         };
     }
 
-    async findById(id: string) {
+    async findById(id: string, allowedShopIds?: string[]) {
         const link = await this.prisma.productLink
             .findFirst({
-                where: { id, deletedAt: null },
+                where: {
+                    AND: [
+                        { id, deletedAt: null },
+                        // 数据范围限定：越权等同不存在（404，不泄露存在性）
+                        ...(allowedShopIds ? [{ shopId: { in: allowedShopIds } }] : []),
+                    ],
+                },
                 include: LINK_INCLUDE,
             });
         if (!link) {
@@ -126,15 +141,23 @@ export class ProductLinkService {
         };
     }
 
+    /**
+     * 创建链接
+     * @param allowedShopIds 数据范围限定：非空时只能建在可见店铺下
+     */
     async create(
         dto: CreateProductLinkDto,
         userId: string,
+        allowedShopIds?: string[],
     ) {
-        // 校验店铺存在
+        // 校验店铺存在（数据范围限定时还要求店铺可见）
+        // ⚠️ 用 AND 组合，避免与上面的 id 条件互相覆盖
         const shop = await this.prisma.shop.findFirst({
             where: {
-                id: dto.shopId,
-                deletedAt: null,
+                AND: [
+                    { id: dto.shopId, deletedAt: null },
+                    ...(allowedShopIds ? [{ id: { in: allowedShopIds } }] : []),
+                ],
             },
         });
         if (!shop) {
@@ -159,16 +182,20 @@ export class ProductLinkService {
         id: string,
         dto: UpdateProductLinkDto,
         userId: string,
+        allowedShopIds?: string[],
     ) {
-        await this.findById(id);
+        // 数据范围：链接不在可见范围内时等同不存在
+        await this.findById(id, allowedShopIds);
 
-        // 如果更换店铺，校验新店铺存在
+        // 如果更换店铺，校验新店铺存在（且必须在可见范围内）
         if (dto.shopId) {
             const shop = await this.prisma.shop
                 .findFirst({
                     where: {
-                        id: dto.shopId,
-                        deletedAt: null,
+                        AND: [
+                            { id: dto.shopId, deletedAt: null },
+                            ...(allowedShopIds ? [{ id: { in: allowedShopIds } }] : []),
+                        ],
                     },
                 });
             if (!shop) {
@@ -189,8 +216,9 @@ export class ProductLinkService {
         return link;
     }
 
-    async delete(id: string, userId: string) {
-        const link = await this.findById(id);
+    async delete(id: string, userId: string, allowedShopIds?: string[]) {
+        // 数据范围：链接不在可见范围内时等同不存在
+        const link = await this.findById(id, allowedShopIds);
 
         const skuCount = await this.prisma.sku.count({
             where: { linkId: id, deletedAt: null },
@@ -214,11 +242,16 @@ export class ProductLinkService {
 
     // ==================== 辅助接口 ====================
 
-    async getShopsForSelect() {
+    /**
+     * 店铺下拉
+     * @param allowedShopIds 数据范围限定：非空时只返回可见店铺
+     */
+    async getShopsForSelect(allowedShopIds?: string[]) {
         return this.prisma.shop.findMany({
             where: {
                 status: 'ACTIVE',
                 deletedAt: null,
+                ...(allowedShopIds ? { id: { in: allowedShopIds } } : {}),
             },
             select: {
                 id: true,
@@ -234,7 +267,24 @@ export class ProductLinkService {
         });
     }
 
-    async reorderProductLinks(ids: string[]) {
+    /**
+     * 批量更新排序
+     * @param allowedShopIds 数据范围限定：非空时全部目标链接都必须可见（否则整体拒绝）
+     */
+    async reorderProductLinks(ids: string[], allowedShopIds?: string[]) {
+        if (allowedShopIds) {
+            const owned = await this.prisma.productLink.count({
+                where: {
+                    id: { in: ids },
+                    deletedAt: null,
+                    shopId: { in: allowedShopIds },
+                },
+            });
+            if (owned !== ids.length) {
+                throw new NotFoundException('链接不存在');
+            }
+        }
+
         const maxOrder = await this.prisma.productLink.aggregate({
             _max: { sortOrder: true },
         });

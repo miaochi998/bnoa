@@ -24,6 +24,27 @@ import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { ScanReviewService, ScanReviewQueryDto, VerifyFileDto, QuarantineFileDto } from './scan-review.service';
 import { VirusScannerService } from './virus-scanner.service';
 import { PrismaService } from '../../../config/prisma.service';
+import type { UserPayload } from '../../../common/decorators/current-user.decorator';
+import {
+  FieldKeyMapping,
+  FieldPermissionService,
+} from '../../role/field-permission.service';
+
+/** 安全中心字段映射：用于「信息权限」读取脱敏 */
+const SECURITY_FIELD_MAP: FieldKeyMapping[] = [
+  { field: 'type', key: 'type' },
+  { field: 'severity', key: 'severity' },
+  { field: 'status', key: 'status' },
+  { field: 'fileName', key: 'fileName' },
+  { field: 'details', key: 'details' },
+  { field: 'metadata', key: 'metadata' },
+  { field: 'ipAddress', key: 'ipAddress' },
+  { field: 'location', key: 'location' },
+  { field: 'actionTaken', key: 'actionTaken' },
+  { field: 'notes', key: 'notes' },
+  // 列表里字段名是 eventType（映射自 type），一并覆盖
+  { field: 'type', key: 'eventType' },
+];
 
 /**
  * 批量操作DTO
@@ -52,7 +73,26 @@ export class SecurityCenterController {
     private readonly scanReviewService: ScanReviewService,
     private readonly virusScannerService: VirusScannerService,
     private readonly prisma: PrismaService,
+    private readonly fieldPermissionService: FieldPermissionService,
   ) {}
+
+  /** 当前用户在本模块的字段权限 */
+  private resolveFields(user: UserPayload) {
+    return this.fieldPermissionService.resolve(
+      user.sub,
+      'security',
+      user.roles ?? [],
+    );
+  }
+
+  /** 递归脱敏 */
+  private stripSecurityDeep(node: any, state: any): any {
+    return this.fieldPermissionService.stripHiddenFieldsDeep(
+      node,
+      SECURITY_FIELD_MAP,
+      state,
+    );
+  }
 
   // ============================================
   // 安全统计API
@@ -115,7 +155,7 @@ export class SecurityCenterController {
   @Permissions('security:scan-review')
   @ApiOperation({ summary: '获取待审核文件列表' })
   async getScanFiles(
-    @CurrentUser('userId') userId: string,
+    @CurrentUser() user: UserPayload,
     @Query('status') status?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
@@ -125,7 +165,12 @@ export class SecurityCenterController {
       page: page ? parseInt(page, 10) : 1,
       pageSize: pageSize ? parseInt(pageSize, 10) : 20,
     };
-    return this.scanReviewService.getPendingScanFiles(userId, query);
+    const result = await this.scanReviewService.getPendingScanFiles(
+      user.userId ?? user.sub,
+      query,
+    );
+    const state = await this.resolveFields(user);
+    return this.stripSecurityDeep(result, state);
   }
 
   /**
@@ -266,6 +311,7 @@ export class SecurityCenterController {
     @Query('ipAddress') ipAddress?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @CurrentUser() user?: UserPayload,
   ) {
     const pageNum = page ? parseInt(page, 10) : 1;
     const pageSizeNum = Math.min(pageSize ? parseInt(pageSize, 10) : 20, 100);
@@ -307,8 +353,9 @@ export class SecurityCenterController {
       this.prisma.securityLog.count({ where: { status: 'RESOLVED' } }),
     ]);
 
+    const state = await this.resolveFields(user as UserPayload);
     return {
-      items: events.map(event => ({
+      items: this.stripSecurityDeep(events.map(event => ({
         id: event.id,
         eventType: event.type,
         severity: event.severity,
@@ -323,7 +370,7 @@ export class SecurityCenterController {
         acknowledgedBy: event.acknowledgedBy,
         acknowledgedAt: event.acknowledgedAt,
         createdAt: event.createdAt,
-      })),
+      })), state),
       pagination: {
         page: pageNum,
         pageSize: pageSizeNum,

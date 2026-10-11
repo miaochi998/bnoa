@@ -3,10 +3,12 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { CryptoUtil } from '../../common/utils/crypto.util';
+import { PermissionGuard } from '../../common/guards/permission.guard';
 import { RealFolderService } from '../file/real-folder.service';
 import { CreateUserInput, CreateUserInputRest } from './dto/create-user.dto';
 import { UpdateUserInput, UpdateUserInputRest } from './dto/update-user.dto';
@@ -150,11 +152,41 @@ export class UserService {
   }
 
   /**
+   * 校验操作人是否有「配置角色权限」权限（super_admin 直接通过）
+   *
+   * 为什么单独校验：`PUT /users/:id` 只需 `user:update`，而该码已授予非超管角色（operator）。
+   * 若仅凭 user:update 就能提交 roleIds，任何有该权限的人都可以把自己改成 super_admin（垂直提权）。
+   */
+  private async assertCanAssignRoles(operatorId: string): Promise<void> {
+    const rows = await this.prisma.userRole.findMany({
+      where: { userId: operatorId, role: { isActive: true, deletedAt: null } },
+      include: {
+        role: {
+          include: { rolePermissions: { include: { permission: true } } },
+        },
+      },
+    });
+    const allowed = rows.some(
+      (ur) =>
+        ur.role.code === 'super_admin' ||
+        ur.role.rolePermissions.some(
+          (rp) => rp.permission.code === 'role:assign-permissions',
+        ),
+    );
+    if (!allowed) {
+      throw new ForbiddenException(
+        '无「配置角色权限」权限，不能修改用户的角色（请由管理员在「角色权限」中分配）',
+      );
+    }
+  }
+
+  /**
    * 更新用户
    */
   async update(
     id: string,
     input: UpdateUserInput | UpdateUserInputRest,
+    operatorId?: string,
   ): Promise<User> {
     const { email, name, phone, avatar, status, roleIds } = input;
 
@@ -198,6 +230,13 @@ export class UserService {
 
     // 更新角色
     if (roleIds !== undefined) {
+      // 改角色属高权限操作：必须有 role:assign-permissions（或超管），
+      // 否则可借 user:update 自我提权
+      if (!operatorId) {
+        throw new ForbiddenException('缺少操作人信息，不能修改用户角色');
+      }
+      await this.assertCanAssignRoles(operatorId);
+
       // 删除现有角色
       await this.prisma.userRole.deleteMany({
         where: { userId: id },
@@ -212,6 +251,10 @@ export class UserService {
           })),
         });
       }
+
+      // 角色已变更：立即清除该用户的权限缓存，
+      // 否则降权后最长 5 分钟仍持旧权限（越权窗口）、提权同理延迟生效
+      PermissionGuard.clearUserCacheNow(id);
     }
 
     this.logger.log(`用户更新成功: ${id}`);
@@ -244,8 +287,16 @@ export class UserService {
 
     await this.prisma.user.update({
       where: { id },
-      data: { deletedAt: new Date() },
+      data: { deletedAt: new Date(), status: 'SUSPENDED' },
     });
+
+    // 软删除必须同时撤销会话：
+    // 否则已签发的 access token（最长 12h）与 refresh token（7d 且可滚动续期）仍可继续访问系统。
+    await this.prisma.refreshToken.updateMany({
+      where: { userId: id, isRevoked: false },
+      data: { isRevoked: true, revokedAt: new Date() },
+    });
+    PermissionGuard.clearUserCacheNow(id);
 
     this.logger.log(`用户删除成功: ${id}`);
   }

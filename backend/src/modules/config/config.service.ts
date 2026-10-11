@@ -40,6 +40,15 @@ interface PrismaConfig {
  * 系统配置服务
  * 提供系统配置的增删改查和缓存功能
  */
+/** 密钥类配置键：读取时掩码显示；写入时若收到掩码值则忽略（避免把掩码存进数据库） */
+const SENSITIVE_CONFIG_KEYS = new Set([
+  'email.smtpPassword',
+  'email.smtpPass',
+  'storage.s3AccessKey',
+  'storage.s3SecretKey',
+]);
+export const CONFIG_MASK = '••••••••';
+
 @Injectable()
 export class ConfigService {
   private readonly logger = new Logger(ConfigService.name);
@@ -112,6 +121,8 @@ export class ConfigService {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _userId: string,
   ): Promise<ConfigInfo> {
+    // 掩码值表示"该项未修改"
+    if (dto.value === CONFIG_MASK) dto.value = undefined as any;
     const config = await this.prisma.config.findFirst({
       where: { id, deletedAt: null },
     });
@@ -232,6 +243,8 @@ export class ConfigService {
    * @param userId 操作人ID
    */
   async setConfigByKey(key: string, value: string, userId: string): Promise<void> {
+    // 掩码值表示"该项未修改"，直接返回
+    if (value === CONFIG_MASK) return;
     const existing = await this.prisma.config.findFirst({
       where: { key, deletedAt: null },
     });
@@ -345,6 +358,8 @@ export class ConfigService {
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       for (const item of dto.configs) {
+        // 掩码值表示"该项未修改"，跳过写入
+        if (item.value === CONFIG_MASK) continue;
         const config = await tx.config.findFirst({
           where: { key: item.key, deletedAt: null },
         });
@@ -520,7 +535,10 @@ export class ConfigService {
     return {
       id: config.id,
       key: config.key,
-      value: config.value,
+      value:
+        SENSITIVE_CONFIG_KEYS.has(config.key) && config.value
+          ? CONFIG_MASK
+          : config.value,
       type: config.type as ConfigType,
       description: config.description ?? undefined,
       category: config.category,

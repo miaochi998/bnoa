@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { usePermissionStore } from '@/lib/stores/permission-store';
 import { PermissionGate } from '@/components/PermissionGate';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import { ImportExcelDialog } from './components/ImportExcelDialog';
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
@@ -42,6 +43,7 @@ const STATUS_MAP: Record<string, { label: string; color: string }> = {
 const currentYear = new Date().getFullYear();
 
 export default function ProfitReportsPage() {
+    const fp = useFieldPermissions('profit');
     const router = useRouter();
     const { hasPermission } = usePermissionStore();
     const canEdit = hasPermission('profit:edit');
@@ -209,11 +211,19 @@ export default function ProfitReportsPage() {
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead>期间</TableHead>
-                                    <TableHead>状态</TableHead>
+                                    {(fp.canView('year') || fp.canView('month')) && (
+                                        <TableHead>期间</TableHead>
+                                    )}
+                                    {fp.canView('status') && (
+                                        <TableHead>状态</TableHead>
+                                    )}
                                     <TableHead>店铺数</TableHead>
-                                    <TableHead className="text-right">费用合计</TableHead>
-                                    <TableHead className="text-right">净利润</TableHead>
+                                    {fp.canView('summary.totalExpense') && (
+                                        <TableHead className="text-right">费用合计</TableHead>
+                                    )}
+                                    {fp.canView('summary.totalNetProfit') && (
+                                        <TableHead className="text-right">净利润</TableHead>
+                                    )}
                                     <TableHead>创建时间</TableHead>
                                     <TableHead className="text-right">
                                         操作
@@ -233,9 +243,13 @@ export default function ProfitReportsPage() {
                                 ) : (
                                     reports.map((r) => (
                                         <TableRow key={r.id}>
+                                            {(fp.canView('year') || fp.canView('month')) && (
                                             <TableCell className="font-medium">
-                                                {r.year}年{r.month}月
+                                                {fp.canView('year') ? `${r.year}年` : ''}
+                                                {fp.canView('month') ? `${r.month}月` : ''}
                                             </TableCell>
+                                            )}
+                                            {fp.canView('status') && (
                                             <TableCell>
                                                 <span className={
                                                     STATUS_MAP[r.status]?.color
@@ -245,15 +259,20 @@ export default function ProfitReportsPage() {
                                                     {STATUS_MAP[r.status]?.label}
                                                 </span>
                                             </TableCell>
+                                            )}
                                             <TableCell>
                                                 {r._count?.profitReportEntries ?? 0}
                                             </TableCell>
+                                            {fp.canView('summary.totalExpense') && (
                                             <TableCell className="text-right font-mono">
                                                 {(r.totalExpense ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </TableCell>
+                                            )}
+                                            {fp.canView('summary.totalNetProfit') && (
                                             <TableCell className={`text-right font-mono ${(r.totalNetProfit ?? 0) < 0 ? 'text-red-500' : 'text-green-600'}`}>
                                                 {(r.totalNetProfit ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </TableCell>
+                                            )}
                                             <TableCell className="text-muted-foreground text-sm">
                                                 {new Date(r.createdAt)
                                                     .toLocaleDateString('zh-CN')}

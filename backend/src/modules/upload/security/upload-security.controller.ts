@@ -35,7 +35,8 @@ class ScanFileDto {
   filePath: string;
 }
 
-@Controller('api/v1/upload-security')
+// 全局已有 api/v1 前缀，此处不能再带，否则实际路由会变成 /api/v1/api/v1/upload-security
+@Controller('upload-security')
 @UseGuards(JwtAuthGuard, PermissionGuard)
 export class UploadSecurityController {
   constructor(

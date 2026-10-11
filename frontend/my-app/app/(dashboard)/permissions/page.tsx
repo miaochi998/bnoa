@@ -6,6 +6,10 @@ import { Button } from '@/components/ui/button';
 import { apiClient } from '@/lib/api';
 import { PermissionTreeNode, PermissionType } from '@/types/permission';
 import { DictTag } from '@/components/shared/DictTag';
+import {
+  useFieldPermissions,
+  type FieldPermissionInfo,
+} from '@/lib/hooks/useFieldPermissions';
 import { toast } from 'sonner';
 import {
   Key,
@@ -15,16 +19,21 @@ import {
   Shield,
   FileText,
   RefreshCw,
+  EyeOff,
 } from 'lucide-react';
 
 interface TreeNodeProps {
   node: PermissionTreeNode;
   level?: number;
+  /** 字段级权限（模块 permission）：name / code / type / description */
+  fp: FieldPermissionInfo;
 }
 
-function TreeNodeComponent({ node, level = 0 }: TreeNodeProps) {
+function TreeNodeComponent({ node, level = 0, fp }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = node.children && node.children.length > 0;
+  const showName = fp.canView('name');
+  const showCode = fp.canView('code');
 
   return (
     <div className="select-none">
@@ -48,15 +57,20 @@ function TreeNodeComponent({ node, level = 0 }: TreeNodeProps) {
         )}
 
         <div className="flex-1 flex items-center gap-3">
-          <span className="text-foreground font-medium">{node.name}</span>
-          <code className="px-2 py-0.5 bg-muted rounded text-xs text-muted-foreground">
-            {node.code}
-          </code>
+          {showName && <span className="text-foreground font-medium">{node.name}</span>}
+          {showCode && (
+            <code className="px-2 py-0.5 bg-muted rounded text-xs text-muted-foreground">
+              {node.code}
+            </code>
+          )}
+          {!showName && !showCode && (
+            <span className="text-sm text-muted-foreground">—</span>
+          )}
         </div>
 
-        <DictTag typeCode="permission_type" value={node.type} />
+        {fp.canView('type') && <DictTag typeCode="permission_type" value={node.type} />}
 
-        {node.description && (
+        {fp.canView('description') && node.description && (
           <span className="text-sm text-muted-foreground max-w-[200px] truncate">
             {node.description}
           </span>
@@ -70,6 +84,7 @@ function TreeNodeComponent({ node, level = 0 }: TreeNodeProps) {
               key={child.id}
               node={child}
               level={level + 1}
+              fp={fp}
             />
           ))}
         </div>
@@ -94,6 +109,11 @@ export default function PermissionsPage() {
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  // 字段级权限（模块 permission）：name / code / type / description
+  const fp = useFieldPermissions('permission');
+  const showName = fp.canView('name');
+  const showCode = fp.canView('code');
+  const showNameCode = showName || showCode;
 
   const fetchPermissionTree = useCallback(async () => {
     try {
@@ -188,6 +208,12 @@ export default function PermissionsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {!fp.loaded && !loading && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+              <EyeOff className="w-3.5 h-3.5" />
+              字段权限加载中，受控字段暂不展示
+            </div>
+          )}
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -202,13 +228,21 @@ export default function PermissionsPage() {
               {/* Header */}
               <div className="flex items-center gap-3 py-2.5 px-4 bg-muted/50 border-b border-border font-medium text-sm text-muted-foreground">
                 <span className="w-6" />
-                <span className="flex-1">权限名称 / 编码</span>
-                <span className="w-16 text-center">类型</span>
-                <span className="w-[200px]">描述</span>
+                <span className="flex-1">
+                  {showName && showCode
+                    ? '权限名称 / 编码'
+                    : showName
+                      ? '权限名称'
+                      : showCode
+                        ? '权限编码'
+                        : ''}
+                </span>
+                {fp.canView('type') && <span className="w-16 text-center">类型</span>}
+                {fp.canView('description') && <span className="w-[200px]">描述</span>}
               </div>
               {/* Tree */}
               {permissionTree.map((node) => (
-                <TreeNodeComponent key={node.id} node={node} />
+                <TreeNodeComponent key={node.id} node={node} fp={fp} />
               ))}
             </div>
           )}

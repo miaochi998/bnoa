@@ -5,13 +5,21 @@ import { ConfigController } from './config.controller';
 import { PrismaModule } from '../../config/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { StorageModule } from '../storage/storage.module';
+import { FieldPermissionModule } from '../role/field-permission.module';
 
 /**
  * 系统配置模块
  * 提供系统配置的管理和缓存功能
  */
 @Module({
-  imports: [NestConfigModule, PrismaModule, forwardRef(() => AuthModule), forwardRef(() => StorageModule)],
+  imports: [
+    NestConfigModule,
+    PrismaModule,
+    forwardRef(() => AuthModule),
+    forwardRef(() => StorageModule),
+    // 只引字段权限模块（不引 RoleModule），避免与 Auth/Storage 形成模块循环依赖
+    FieldPermissionModule,
+  ],
   providers: [ConfigService],
   controllers: [ConfigController],
   exports: [ConfigService],

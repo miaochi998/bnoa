@@ -8,6 +8,7 @@ import { DictSelect } from '@/components/shared/DictSelect';
 import { apiClient } from '@/lib/api';
 import { Plus, Trash2 } from 'lucide-react';
 import { SearchableSelect } from './SearchableSelect';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface FinishedProductFormProps {
     finishedProduct: any;
@@ -21,6 +22,7 @@ export function FinishedProductForm({
     onCancel,
 }: FinishedProductFormProps) {
     const isEdit = !!finishedProduct;
+    const fp = useFieldPermissions('finished-product');
 
     const [form, setForm] = useState({
         name: finishedProduct?.name || '',
@@ -59,10 +61,12 @@ export function FinishedProductForm({
     );
 
     const [laborItems, setLaborItems] = useState<
-        { laborTypeId: string }[]
+        { laborTypeId: string; quantity: number }[]
     >(
         (initialLabor ?? []).map((i: any) => ({
             laborTypeId: i.laborType?.id ?? i.laborTypeId ?? '',
+            // 工费次数（默认 1；此前没有该字段，导致工费成本只按 1 次计算）
+            quantity: i.quantity ?? 1,
         })),
     );
 
@@ -99,6 +103,7 @@ export function FinishedProductForm({
         setLaborItems(
             (labor ?? []).map((i: any) => ({
                 laborTypeId: i.laborType?.id ?? i.laborTypeId ?? '',
+                quantity: i.quantity ?? 1,
             })),
         );
     }, [finishedProduct?.id]);
@@ -162,7 +167,8 @@ export function FinishedProductForm({
 
     const addLaborItem = () => {
         setLaborItems([
-            ...laborItems, { laborTypeId: '' },
+            ...laborItems,
+            { laborTypeId: '', quantity: 1 },
         ]);
     };
 
@@ -174,68 +180,80 @@ export function FinishedProductForm({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!form.name.trim()) {
+        if (!isEdit && (!fp.canEdit('name') || !fp.canEdit('productId') || !fp.canEdit('supplierProductId') || !fp.canEdit('packageType') || !fp.canEdit('packageQuantity') || !fp.canEdit('packageUnit') || !fp.canEdit('weight'))) {
+            return alert('没有创建成品所需的字段编辑权限');
+        }
+        if (fp.canEdit('name') && !form.name.trim()) {
             return alert('请输入成品名称');
         }
-        if (!form.productId) {
+        if (!isEdit && fp.canEdit('productId') && !form.productId) {
             return alert('请选择产品');
         }
-        if (!form.supplierProductId) {
+        if (fp.canEdit('supplierProductId') && !form.supplierProductId) {
             return alert('请选择供应商价格');
         }
-        if (pricingMode === 'VOLUME'
+        if (fp.canEdit('cutLength') && pricingMode === 'VOLUME'
             && (!form.cutLength || !form.cutWidth
                 || !form.cutHeight)) {
             return alert('按体积计价必须填写切割长/宽/高');
         }
-        if (pricingMode === 'WEIGHT' && !form.unitWeight) {
+        if (fp.canEdit('unitWeight') && pricingMode === 'WEIGHT' && !form.unitWeight) {
             return alert('按重量计价必须填写每份重量');
         }
-        if (pricingMode === 'AREA'
+        if (fp.canEdit('cutLength') && pricingMode === 'AREA'
             && (!form.cutLength || !form.cutWidth)) {
             return alert('按面积计价必须填写切割长/宽');
         }
-        if (pricingMode === 'LENGTH' && !form.cutLength) {
+        if (fp.canEdit('cutLength') && pricingMode === 'LENGTH' && !form.cutLength) {
             return alert('按长度计价必须填写切割长度');
         }
 
-        const payload: any = {
-            name: form.name,
-            supplierProductId: form.supplierProductId,
-            packageType: form.packageType,
-            packageQuantity: Number(form.packageQuantity),
-            packageUnit: form.packageUnit,
-            weight: Number(form.weight),
-            remark: form.remark || undefined,
-            consumableItems: consumableItems
+        // 只提交「可编辑」字段：被配成只读/隐藏的字段不发送
+        const payload: any = {};
+        if (fp.canEdit('name')) payload.name = form.name;
+        if (fp.canEdit('supplierProductId')) payload.supplierProductId = form.supplierProductId;
+        if (fp.canEdit('packageType')) payload.packageType = form.packageType;
+        if (fp.canEdit('packageQuantity')) payload.packageQuantity = Number(form.packageQuantity);
+        if (fp.canEdit('packageUnit')) payload.packageUnit = form.packageUnit;
+        if (fp.canEdit('weight')) payload.weight = Number(form.weight);
+        if (fp.canEdit('remark')) payload.remark = form.remark || undefined;
+        if (fp.canEdit('consumableItems')) {
+            payload.consumableItems = consumableItems
                 .filter((i) => i.consumableId)
                 .map((i) => ({
                     consumableId: i.consumableId,
                     quantity: Number(i.quantity),
-                })),
-            laborItems: laborItems
+                }));
+        }
+        if (fp.canEdit('laborItems')) {
+            payload.laborItems = laborItems
                 .filter((i) => i.laborTypeId)
                 .map((i) => ({
                     laborTypeId: i.laborTypeId,
-                })),
-        };
-        if (!isEdit) {
+                    quantity: Number(i.quantity) || 1,
+                }));
+        }
+        if (!isEdit && fp.canEdit('productId')) {
             payload.productId = form.productId;
         }
-        if (['VOLUME', 'AREA', 'LENGTH'].includes(pricingMode)) {
+        if (fp.canEdit('cutLength') && ['VOLUME', 'AREA', 'LENGTH'].includes(pricingMode)) {
             payload.cutLength = Number(form.cutLength);
         }
-        if (['VOLUME', 'AREA'].includes(pricingMode)) {
+        if (fp.canEdit('cutWidth') && ['VOLUME', 'AREA'].includes(pricingMode)) {
             payload.cutWidth = Number(form.cutWidth);
         }
-        if (pricingMode === 'VOLUME') {
+        if (fp.canEdit('cutHeight') && pricingMode === 'VOLUME') {
             payload.cutHeight = Number(form.cutHeight);
         }
-        if (pricingMode === 'WEIGHT') {
+        if (fp.canEdit('unitWeight') && pricingMode === 'WEIGHT') {
             payload.unitWeight = Number(form.unitWeight);
         }
-        if (isEdit) {
+        if (isEdit && fp.canEdit('status')) {
             payload.status = form.status;
+        }
+
+        if (Object.keys(payload).length === 0) {
+            return alert('你没有成品字段的编辑权限');
         }
 
         setLoading(true);
@@ -269,17 +287,18 @@ export function FinishedProductForm({
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
-            {isEdit && (
+            {isEdit && fp.canView('code') && (
                 <div className="space-y-1">
                     <Label className="text-white">编码</Label>
                     <Input
-                        value={finishedProduct.code}
+                        value={finishedProduct.code ?? ''}
                         disabled
                         className="bg-[#1e1e1e] border-[#1e1e1e] text-[#8e8e8e]"
                     />
                 </div>
             )}
 
+            {fp.canView('name') && (
             <div className="space-y-1">
                 <Label className="text-white">
                     成品名称 <span className="text-red-400">*</span>
@@ -290,11 +309,14 @@ export function FinishedProductForm({
                     onChange={(e) =>
                         setForm({ ...form, name: e.target.value })
                     }
-                    className={inputCls}
+                    disabled={!fp.canEdit('name')}
+                    className={inputCls + ' disabled:opacity-50'}
                 />
             </div>
+            )}
 
             <div className="grid grid-cols-3 gap-4">
+                {fp.canView('productId') && (
                 <div className="space-y-1">
                     <Label className="text-white">
                         产品 <span className="text-red-400">*</span>
@@ -302,7 +324,7 @@ export function FinishedProductForm({
                     <SearchableSelect
                         value={form.productId}
                         onValueChange={handleProductChange}
-                        disabled={isEdit}
+                        disabled={isEdit || !fp.canEdit('productId')}
                         placeholder="选择产品"
                         options={products.map((p) => ({
                             value: p.id,
@@ -319,6 +341,8 @@ export function FinishedProductForm({
                         }))}
                     />
                 </div>
+                )}
+                {fp.canView('supplierProductId') && (
                 <div className="space-y-1">
                     <Label className="text-white">
                         供应商价格 <span className="text-red-400">*</span>
@@ -328,6 +352,7 @@ export function FinishedProductForm({
                         onValueChange={(v) =>
                             setForm({ ...form, supplierProductId: v })
                         }
+                        disabled={!fp.canEdit('supplierProductId')}
                         placeholder="先选产品"
                         options={supplierProducts.map((sp) => ({
                             value: sp.id,
@@ -335,6 +360,8 @@ export function FinishedProductForm({
                         }))}
                     />
                 </div>
+                )}
+                {fp.canView('weight') && (
                 <div className="space-y-1">
                     <Label className="text-white">
                         成品重量(kg) <span className="text-red-400">*</span>
@@ -347,9 +374,11 @@ export function FinishedProductForm({
                         onChange={(e) =>
                             setForm({ ...form, weight: e.target.value })
                         }
-                        className={inputCls}
+                        disabled={!fp.canEdit('weight')}
+                        className={inputCls + ' disabled:opacity-50'}
                     />
                 </div>
+                )}
             </div>
 
             {/* 按计价方式显示不同参数 */}
@@ -365,7 +394,8 @@ export function FinishedProductForm({
                             onChange={(e) =>
                                 setForm({ ...form, cutLength: e.target.value })
                             }
-                            className={inputCls}
+                            disabled={!fp.canEdit('cutLength')}
+                            className={inputCls + ' disabled:opacity-50'}
                         />
                     </div>
                     <div className="space-y-1">
@@ -378,7 +408,8 @@ export function FinishedProductForm({
                             onChange={(e) =>
                                 setForm({ ...form, cutWidth: e.target.value })
                             }
-                            className={inputCls}
+                            disabled={!fp.canEdit('cutWidth')}
+                            className={inputCls + ' disabled:opacity-50'}
                         />
                     </div>
                     <div className="space-y-1">
@@ -391,7 +422,8 @@ export function FinishedProductForm({
                             onChange={(e) =>
                                 setForm({ ...form, cutHeight: e.target.value })
                             }
-                            className={inputCls}
+                            disabled={!fp.canEdit('cutHeight')}
+                            className={inputCls + ' disabled:opacity-50'}
                         />
                     </div>
                 </div>
@@ -408,7 +440,8 @@ export function FinishedProductForm({
                             onChange={(e) =>
                                 setForm({ ...form, unitWeight: e.target.value })
                             }
-                            className={inputCls}
+                            disabled={!fp.canEdit('unitWeight')}
+                            className={inputCls + ' disabled:opacity-50'}
                         />
                     </div>
                 </div>
@@ -425,7 +458,8 @@ export function FinishedProductForm({
                             onChange={(e) =>
                                 setForm({ ...form, cutLength: e.target.value })
                             }
-                            className={inputCls}
+                            disabled={!fp.canEdit('cutLength')}
+                            className={inputCls + ' disabled:opacity-50'}
                         />
                     </div>
                     <div className="space-y-1">
@@ -438,7 +472,8 @@ export function FinishedProductForm({
                             onChange={(e) =>
                                 setForm({ ...form, cutWidth: e.target.value })
                             }
-                            className={inputCls}
+                            disabled={!fp.canEdit('cutWidth')}
+                            className={inputCls + ' disabled:opacity-50'}
                         />
                     </div>
                 </div>
@@ -455,13 +490,15 @@ export function FinishedProductForm({
                             onChange={(e) =>
                                 setForm({ ...form, cutLength: e.target.value })
                             }
-                            className={inputCls}
+                            disabled={!fp.canEdit('cutLength')}
+                            className={inputCls + ' disabled:opacity-50'}
                         />
                     </div>
                 </div>
             )}
 
             <div className="grid grid-cols-3 gap-4">
+                {fp.canView('packageType') && (
                 <div className="space-y-1">
                     <Label className="text-white">
                         包装类型 <span className="text-red-400">*</span>
@@ -472,9 +509,12 @@ export function FinishedProductForm({
                         onChange={(v) =>
                             setForm({ ...form, packageType: v })
                         }
+                        disabled={!fp.canEdit('packageType')}
                         className={selectCls}
                     />
                 </div>
+                )}
+                {fp.canView('packageQuantity') && (
                 <div className="space-y-1">
                     <Label className="text-white">
                         每包数量 <span className="text-red-400">*</span>
@@ -489,9 +529,12 @@ export function FinishedProductForm({
                                 packageQuantity: e.target.value,
                             })
                         }
-                        className={inputCls}
+                        disabled={!fp.canEdit('packageQuantity')}
+                        className={inputCls + ' disabled:opacity-50'}
                     />
                 </div>
+                )}
+                {fp.canView('packageUnit') && (
                 <div className="space-y-1">
                     <Label className="text-white">
                         包装单位 <span className="text-red-400">*</span>
@@ -502,12 +545,14 @@ export function FinishedProductForm({
                         onChange={(e) =>
                             setForm({ ...form, packageUnit: e.target.value })
                         }
-                        className={inputCls}
+                        disabled={!fp.canEdit('packageUnit')}
+                        className={inputCls + ' disabled:opacity-50'}
                     />
                 </div>
+                )}
             </div>
 
-            {isEdit && (
+            {isEdit && fp.canView('status') && (
                 <div className="space-y-1">
                     <Label className="text-white">状态</Label>
                     <DictSelect
@@ -516,11 +561,13 @@ export function FinishedProductForm({
                         onChange={(v) =>
                             setForm({ ...form, status: v })
                         }
+                        disabled={!fp.canEdit('status')}
                         className={selectCls}
                     />
                 </div>
             )}
 
+            {fp.canView('remark') && (
             <div className="space-y-1">
                 <Label className="text-white">备注</Label>
                 <Input
@@ -529,11 +576,14 @@ export function FinishedProductForm({
                     onChange={(e) =>
                         setForm({ ...form, remark: e.target.value })
                     }
-                    className={inputCls}
+                    disabled={!fp.canEdit('remark')}
+                    className={inputCls + ' disabled:opacity-50'}
                 />
             </div>
+            )}
 
             {/* 耗材清单 */}
+            {fp.canView('consumableItems') && (
             <div className="space-y-2 border-t border-[#3e3e3e] pt-4">
                 <div className="flex justify-between items-center">
                     <Label className="text-white font-medium">
@@ -544,6 +594,7 @@ export function FinishedProductForm({
                         size="sm"
                         variant="outline"
                         onClick={addConsumableItem}
+                        disabled={!fp.canEdit('consumableItems')}
                         className="bg-[#1e1e1e] border-[#3e3e3e] text-white hover:bg-[#363636]"
                     >
                         <Plus className="w-3 h-3 mr-1" /> 添加耗材
@@ -560,6 +611,7 @@ export function FinishedProductForm({
                                     setConsumableItems(arr);
                                 }}
                                 placeholder="选择耗材"
+                                disabled={!fp.canEdit('consumableItems')}
                                 options={consumables.map((c) => ({
                                     value: c.id,
                                     label: c.name,
@@ -571,6 +623,7 @@ export function FinishedProductForm({
                                 type="number"
                                 min="1"
                                 placeholder="用量"
+                                disabled={!fp.canEdit('consumableItems')}
                                 value={item.quantity}
                                 onChange={(e) => {
                                     const arr = [...consumableItems];
@@ -585,6 +638,7 @@ export function FinishedProductForm({
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => removeConsumableItem(idx)}
+                                disabled={!fp.canEdit('consumableItems')}
                                 className="h-9 w-9 shrink-0 text-[#8e8e8e] hover:text-red-400"
                             >
                                 <Trash2 className="w-4 h-4" />
@@ -598,8 +652,10 @@ export function FinishedProductForm({
                     </p>
                 )}
             </div>
+            )}
 
             {/* 工费清单 */}
+            {fp.canView('laborItems') && (
             <div className="space-y-2 border-t border-[#3e3e3e] pt-4">
                 <div className="flex justify-between items-center">
                     <Label className="text-white font-medium">
@@ -610,6 +666,7 @@ export function FinishedProductForm({
                         size="sm"
                         variant="outline"
                         onClick={addLaborItem}
+                        disabled={!fp.canEdit('laborItems')}
                         className="bg-[#1e1e1e] border-[#3e3e3e] text-white hover:bg-[#363636]"
                     >
                         <Plus className="w-3 h-3 mr-1" /> 添加工费
@@ -627,17 +684,34 @@ export function FinishedProductForm({
                                     setLaborItems(arr);
                                 }}
                                 placeholder="选择工种"
+                                disabled={!fp.canEdit('laborItems')}
                                 options={laborTypes.map((l) => ({
                                     value: l.id,
                                     label: l.name,
                                 }))}
                             />
                             </div>
+                            <Input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={String(item.quantity ?? 1)}
+                                onChange={(e) => {
+                                    const arr = [...laborItems];
+                                    arr[idx].quantity = Number(e.target.value) || 1;
+                                    setLaborItems(arr);
+                                }}
+                                title="该工种需要做的次数（默认 1）"
+                                placeholder="次数"
+                                disabled={!fp.canEdit('laborItems')}
+                                className="w-20 bg-[#1e1e1e] border-[#3e3e3e] text-white"
+                            />
                             <Button
                                 type="button"
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => removeLaborItem(idx)}
+                                disabled={!fp.canEdit('laborItems')}
                                 className="h-9 w-9 shrink-0 text-[#8e8e8e] hover:text-red-400"
                             >
                                 <Trash2 className="w-4 h-4" />
@@ -651,6 +725,7 @@ export function FinishedProductForm({
                     </p>
                 )}
             </div>
+            )}
 
             <div className="flex justify-end gap-3 pt-4 border-t border-[#3e3e3e]">
                 <Button

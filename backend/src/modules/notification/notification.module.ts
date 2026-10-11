@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../../config/prisma.module';
 import { AuthModule } from '../auth/auth.module';
+import { RoleModule } from '../role/role.module';
 import {
     NotificationController,
 } from './notification.controller';
@@ -23,6 +24,7 @@ import {
         PrismaModule,
         ConfigModule,
         AuthModule,
+        RoleModule,
     ],
     controllers: [
         NotificationController,

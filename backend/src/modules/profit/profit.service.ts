@@ -8,6 +8,10 @@ import {
 import { PrismaService } from '../../config/prisma.service';
 import { UserPayload } from '../../common/decorators/current-user.decorator';
 import {
+    DataScope,
+    FieldPermissionService,
+} from '../role/field-permission.service';
+import {
     CreateProfitReportDto,
     UpdateProfitReportDto,
     QueryProfitReportDto,
@@ -22,14 +26,29 @@ import {
     QueryMonthlyTrendDto,
 } from './dto/profit.dto';
 
+/** 利润报表的数据范围挂在模块菜单码 `profit:view` 上 */
+const PROFIT_DATA_SCOPE_MODULE = 'profit';
+
 @Injectable()
 export class ProfitService {
     private readonly logger = new Logger(ProfitService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly fieldPermissionService: FieldPermissionService,
+    ) {}
 
-    async create(dto: CreateProfitReportDto, user: UserPayload) {
+    /**
+     * 利润表创建
+     * @param shopIds 数据范围限定：非空时只在可见店铺内建条目（undefined = 全部活跃店铺，与改造前一致）
+     */
+    async create(
+        dto: CreateProfitReportDto,
+        user: UserPayload,
+        shopIds?: string[],
+    ) {
         const userId = this.getUserId(user);
+        await this.resolveScope(user);
 
         // 检查是否已存在
         const existing = await this.prisma.profitReport.findFirst({
@@ -44,9 +63,13 @@ export class ProfitService {
             throw new ConflictException(`${dto.year}年${dto.month}月的利润表已存在`);
         }
 
-        // 获取所有活跃店铺
+        // 获取活跃店铺（数据范围限定时只取可见店铺）
         const shops = await this.prisma.shop.findMany({
-            where: { status: 'ACTIVE', deletedAt: null },
+            where: {
+                status: 'ACTIVE',
+                deletedAt: null,
+                ...(shopIds ? { id: { in: shopIds } } : {}),
+            },
             orderBy: { createdAt: 'asc' },
         });
 
@@ -199,7 +222,11 @@ export class ProfitService {
             }));
     }
 
-    async findAll(query: QueryProfitReportDto) {
+    /**
+     * 月报列表
+     * @param shopIds 数据范围限定：非空时只统计这些店铺（运营只能看到自己负责的店铺）
+     */
+    async findAll(query: QueryProfitReportDto, shopIds?: string[]) {
         const { year } = query;
         const page = query.page ?? 1;
         const pageSize = query.pageSize ?? 20;
@@ -219,9 +246,11 @@ export class ProfitService {
                     { month: 'desc' },
                 ],
                 include: {
-                    _count: { select: { profitReportEntries: true } },
                     profitReportEntries: {
+                        // 数据范围限定：只取自己负责店铺的明细
+                        ...(shopIds ? { where: { shopId: { in: shopIds } } } : {}),
                         select: {
+                            shopId: true,
                             netProfit: true,
                             profitStoreExpenses: { select: { amount: true } },
                             profitAllocationItems: { select: { amount: true } },
@@ -252,6 +281,8 @@ export class ProfitService {
             const { profitReportEntries, ...rest } = report;
             return {
                 ...rest,
+                // 店铺数按「可见的店铺」统计（受限时不再显示全公司店铺数）
+                _count: { profitReportEntries: entries.length },
                 totalExpense: Math.round(totalExpense * 1000) / 1000,
                 totalNetProfit: Math.round(totalNetProfit * 1000) / 1000,
             };
@@ -268,12 +299,25 @@ export class ProfitService {
         };
     }
 
-    async findById(id: string, user?: UserPayload | string) {
+    async findById(
+        id: string,
+        user?: UserPayload | string,
+        shopIds?: string[],
+    ) {
+        // 数据范围：显式传入优先；否则取当前用户已解析的店铺范围（W 类型回调时自动生效）
+        const scope = shopIds !== undefined
+            ? shopIds
+            : (user && typeof user !== 'string'
+                ? await this.resolveScope(user)
+                : undefined);
+
         const report = await this.prisma.profitReport.findFirst({
             where: { id, deletedAt: null },
             include: {
                 profitReportEntries: {
                     orderBy: { sortOrder: 'asc' },
+                    // 数据范围限定：运营只能看到自己负责店铺的明细
+                    ...(scope ? { where: { shopId: { in: scope } } } : {}),
                     include: {
                         shop: {
                             include: {
@@ -359,7 +403,7 @@ export class ProfitService {
     }
 
     async update(id: string, dto: UpdateProfitReportDto, user: UserPayload) {
-        await this.ensureExists(id);
+        await this.ensureReportAccess(id, user);
         const userId = this.getUserId(user);
 
         const updated = await this.prisma.profitReport.update({
@@ -375,7 +419,7 @@ export class ProfitService {
     }
 
     async delete(id: string, user: UserPayload) {
-        await this.ensureExists(id);
+        await this.ensureReportAccess(id, user);
         const userId = this.getUserId(user);
 
         await this.prisma.profitReport.update({
@@ -387,10 +431,11 @@ export class ProfitService {
         });
 
         this.logger.log(`利润表删除成功: ${id}`);
+        return { id, deleted: true };
     }
 
     async confirm(id: string, user: UserPayload) {
-        await this.ensureDraft(id);
+        await this.ensureDraft(id, user);
         const userId = this.getUserId(user);
 
         const updated = await this.prisma.profitReport.update({
@@ -408,6 +453,8 @@ export class ProfitService {
     }
 
     async revoke(id: string, user: UserPayload) {
+        await this.ensureReportAccess(id, user);
+
         const report = await this.prisma.profitReport.findFirst({
             where: { id, deletedAt: null },
         });
@@ -437,10 +484,15 @@ export class ProfitService {
     }
 
     async saveEntries(id: string, dto: SaveEntriesDto, user: UserPayload) {
-        await this.ensureExists(id);
+        await this.ensureReportAccess(id, user);
         const userId = this.getUserId(user);
 
-        // 批量更新条目
+        // 批量更新条目（逐条校验归属：条目必须属于该报表且在自己的店铺范围内）
+        for (const entry of dto.entries) {
+            await this.ensureEntryBelongs(entry.entryId, id);
+            await this.ensureEntryAccess(entry.entryId, user);
+        }
+
         await this.prisma.$transaction(
             dto.entries.map((entry) =>
                 this.prisma.profitReportEntry.update({
@@ -470,8 +522,9 @@ export class ProfitService {
         dto: SaveShippingCostsDto,
         user: UserPayload,
     ) {
-        await this.ensureExists(reportId);
+        await this.ensureReportAccess(reportId, user);
         await this.ensureEntryBelongs(entryId, reportId);
+        await this.ensureEntryAccess(entryId, user);
         const userId = this.getUserId(user);
 
         // 删除旧的运费记录
@@ -506,26 +559,40 @@ export class ProfitService {
         dto: SaveStoreExpensesDto,
         user: UserPayload,
     ) {
-        await this.ensureExists(reportId);
+        await this.ensureReportAccess(reportId, user);
         await this.ensureEntryBelongs(entryId, reportId);
+        await this.ensureEntryAccess(entryId, user);
         const userId = this.getUserId(user);
 
-        // 删除旧的店铺费用记录
-        await this.prisma.profitStoreExpense.deleteMany({
-            where: { entryId },
-        });
-
-        // 创建新的店铺费用记录
-        if (dto.items?.length) {
-            await this.prisma.profitStoreExpense.createMany({
-                data: dto.items.map((expense, index) => ({
-                    entryId,
-                    name: expense.name,
-                    amount: expense.amount,
-                    sortOrder: index,
-                })),
+        // 删除旧的店铺费用记录 + 建立新记录（放在同一事务里，避免中途失败丢数据）
+        // 注意：amount 为 undefined 时**保留同名旧记录的金额**，而不是落默认 0
+        await this.prisma.$transaction(async (tx) => {
+            const previous = await tx.profitStoreExpense.findMany({
+                where: { entryId },
+                select: { name: true, amount: true },
             });
-        }
+            const previousAmount = new Map(
+                previous.map((row) => [row.name, row.amount]),
+            );
+
+            await tx.profitStoreExpense.deleteMany({
+                where: { entryId },
+            });
+
+            if (dto.items?.length) {
+                await tx.profitStoreExpense.createMany({
+                    data: dto.items.map((expense, index) => ({
+                        entryId,
+                        name: expense.name,
+                        amount:
+                            expense.amount !== undefined
+                                ? expense.amount
+                                : (previousAmount.get(expense.name) ?? 0),
+                        sortOrder: index,
+                    })),
+                });
+            }
+        });
 
         await this.prisma.profitReport.update({
             where: { id: reportId },
@@ -541,7 +608,7 @@ export class ProfitService {
         dto: SaveAllocationCategoriesDto,
         user: UserPayload,
     ) {
-        await this.ensureExists(id);
+        await this.ensureReportAccess(id, user);
         const userId = this.getUserId(user);
 
         // 删除旧的分摊类别
@@ -574,28 +641,60 @@ export class ProfitService {
         dto: SaveAllocationsDto,
         user: UserPayload,
     ) {
-        await this.ensureExists(id);
+        await this.ensureReportAccess(id, user);
         const userId = this.getUserId(user);
 
-        // 删除旧的分摊记录
-        await this.prisma.profitAllocationItem.deleteMany({
-            where: {
-                profitReportEntry: {
-                    reportId: id,
-                },
-            },
-        });
-
-        // 创建新的分摊记录
-        if (dto.items?.length) {
-            await this.prisma.profitAllocationItem.createMany({
-                data: dto.items.map((alloc) => ({
-                    entryId: alloc.entryId,
-                    categoryId: alloc.categoryId,
-                    amount: alloc.amount,
-                })),
-            });
+        // 逐条校验分摊目标条目属于该报表且在自己的店铺范围内
+        for (const alloc of dto.items ?? []) {
+            await this.ensureEntryBelongs(alloc.entryId, id);
+            await this.ensureEntryAccess(alloc.entryId, user);
         }
+
+        // 删除旧分摊 + 建立新分摊（同一事务）；amount 缺失时按 (entryId, categoryId)
+        // 保留旧值，避免字段级权限剔除金额后落库为 schema 默认 0（静默清零）
+        await this.prisma.$transaction(async (tx) => {
+            const previous = await tx.profitAllocationItem.findMany({
+                where: {
+                    profitReportEntry: {
+                        reportId: id,
+                    },
+                },
+                select: {
+                    entryId: true,
+                    categoryId: true,
+                    amount: true,
+                },
+            });
+            const previousAmount = new Map(
+                previous.map((row) => [
+                    `${row.entryId}|${row.categoryId}`,
+                    row.amount,
+                ]),
+            );
+
+            await tx.profitAllocationItem.deleteMany({
+                where: {
+                    profitReportEntry: {
+                        reportId: id,
+                    },
+                },
+            });
+
+            if (dto.items?.length) {
+                await tx.profitAllocationItem.createMany({
+                    data: dto.items.map((alloc) => ({
+                        entryId: alloc.entryId,
+                        categoryId: alloc.categoryId,
+                        amount:
+                            alloc.amount !== undefined
+                                ? alloc.amount
+                                : (previousAmount.get(
+                                      `${alloc.entryId}|${alloc.categoryId}`,
+                                  ) ?? 0),
+                    })),
+                });
+            }
+        });
 
         await this.prisma.profitReport.update({
             where: { id },
@@ -611,7 +710,7 @@ export class ProfitService {
         dto: SaveCompanyExpensesDto,
         user: UserPayload,
     ) {
-        await this.ensureExists(id);
+        await this.ensureReportAccess(id, user);
         const userId = this.getUserId(user);
 
         // 删除旧的公司费用
@@ -646,7 +745,7 @@ export class ProfitService {
         dto: SaveNonExpensesDto,
         user: UserPayload,
     ) {
-        await this.ensureExists(id);
+        await this.ensureReportAccess(id, user);
         const userId = this.getUserId(user);
 
         // 删除旧的非费用项
@@ -675,8 +774,20 @@ export class ProfitService {
         return this.findById(id, user);
     }
 
-    async getAnalysis(query: QueryProfitAnalysisDto, user?: UserPayload) {
+    /**
+     * 利润分析
+     * @param user 用于解析数据范围（用户已在请求内被解析过范围时直接复用，避免重复查询）
+     * @param shopIds 数据范围限定：非空时只统计这些店铺的明细（undefined = 全部，与改造前一致）
+     */
+    async getAnalysis(
+        query: QueryProfitAnalysisDto,
+        user?: UserPayload,
+        shopIds?: string[],
+    ) {
         const { year, month } = query;
+        const scope = shopIds !== undefined
+            ? shopIds
+            : (user ? await this.resolveScope(user) : undefined);
 
         // 构建当前期间查询条件
         const where: any = { year, deletedAt: null };
@@ -687,6 +798,8 @@ export class ProfitService {
             where,
             include: {
                 profitReportEntries: {
+                    // 数据范围限定：只统计自己负责店铺的明细
+                    ...(scope ? { where: { shopId: { in: scope } } } : {}),
                     include: {
                         shop: {
                             include: {
@@ -714,6 +827,7 @@ export class ProfitService {
                 where: { year: prevYear, month: prevMonth, deletedAt: null },
                 include: {
                     profitReportEntries: {
+                        ...(scope ? { where: { shopId: { in: scope } } } : {}),
                         include: {
                             profitShippingCosts: true,
                             profitStoreExpenses: true,
@@ -732,6 +846,7 @@ export class ProfitService {
                 where: { year: year - 1, deletedAt: null },
                 include: {
                     profitReportEntries: {
+                        ...(scope ? { where: { shopId: { in: scope } } } : {}),
                         include: {
                             profitShippingCosts: true,
                             profitStoreExpenses: true,
@@ -754,9 +869,16 @@ export class ProfitService {
 
     /**
      * 月度趋势API — 为分析模块4个Tab提供数据
-     * 返回指定年份（及对比年份）每月逐月数据，支持权限过滤和单店铺筛选
+     * 返回指定年份（及对比年份）每月逐月数据，支持数据范围过滤和单店铺筛选
+     *
+     * @param shopIds 数据范围限定：非空时只统计这些店铺（undefined = 全部店铺，
+     *                等价于改造前「管理员」的行为，公司费用照常返回）
      */
-    async getMonthlyTrend(query: QueryMonthlyTrendDto, user: UserPayload) {
+    async getMonthlyTrend(
+        query: QueryMonthlyTrendDto,
+        user: UserPayload,
+        shopIds?: string[],
+    ) {
         const { year, compareYears, shopId } = query;
         const n = (v: any) => Number(v) || 0;
 
@@ -769,17 +891,13 @@ export class ProfitService {
             }
         }
 
-        // 权限过滤：非管理员只能看自己管理的店铺
-        const admin = this.isAdmin(user);
-        const userId = this.getUserId(user);
-        let allowedShopIds: string[] | null = null;
-        if (!admin) {
-            const myShops = await this.prisma.shop.findMany({
-                where: { managerId: userId, deletedAt: null },
-                select: { id: true },
-            });
-            allowedShopIds = myShops.map(s => s.id);
-        }
+        // 数据范围过滤：非空时只能看自己负责的店铺
+        const scope = shopIds !== undefined
+            ? shopIds
+            : await this.resolveScope(user);
+        const allowedShopIds: string[] | null = scope ?? null;
+        // 不限店铺（数据范围为「全部」）时，等同于改造前的管理员视角
+        const canSeeCompanyExpense = !allowedShopIds;
 
         // 查询所有年份的报表（含完整关联数据）
         const reports = await this.prisma.profitReport.findMany({
@@ -826,8 +944,8 @@ export class ProfitService {
             }
             const md = monthlyMap.get(key);
 
-            // 公司费用（仅管理员可见，不受shopId筛选影响）
-            if (admin && !shopId) {
+            // 公司费用（仅数据范围为「全部」时可见，不受shopId筛选影响）
+            if (canSeeCompanyExpense && !shopId) {
                 for (const ce of report.profitCompanyExpenses || []) {
                     md.companyExpenses.push({
                         name: ce.name,
@@ -1218,20 +1336,35 @@ export class ProfitService {
 
     // ========== 私有方法 ==========
 
-    private isAdmin(user: UserPayload): boolean {
-        const adminCodes = ['admin', 'super_admin'];
-        return user.roles?.some((r: any) => {
-            const code = typeof r === 'string' ? r : r.code;
-            return adminCodes.includes(code);
-        }) ?? false;
-    }
-
     private getUserId(user: UserPayload | string): string {
         return typeof user === 'string' ? user : (user.userId || user.sub);
     }
 
     private getUserRoles(user: UserPayload) {
         return user.roles ?? [];
+    }
+
+    /**
+     * 解析并缓存当前用户在模块内的数据范围
+     *
+     * @returns undefined = 不过滤（可见全部店铺，即数据范围为「全部」或未配置）；
+     *          数组 = 只允许这些店铺（可能为空数组，表示一个都看不到）
+     *
+     * ⚠️ 结果挂在 user 对象上（非持久化，仅本次请求内复用），
+     *    这样写接口内部回调 findById 时能自动带上同样的范围。
+     */
+    private async resolveScope(user: UserPayload): Promise<string[] | undefined> {
+        if (!user || typeof user === 'string') return undefined;
+        if ((user as any).__resolvedShopIds !== undefined) {
+            return (user as any).__resolvedShopIds;
+        }
+        const scope = await this.fieldPermissionService.resolveVisibleShopIds(
+            user.sub,
+            PROFIT_DATA_SCOPE_MODULE,
+            user.roles ?? [],
+        );
+        (user as any).__resolvedShopIds = scope;
+        return scope;
     }
 
     private async ensureExists(id: string) {
@@ -1244,7 +1377,39 @@ export class ProfitService {
         }
     }
 
-    private async ensureDraft(id: string) {
+    /**
+     * 报表级数据范围校验（写接口用）
+     * 报表不在可见范围内时抛 NotFoundException（避免泄露数据存在性）
+     *
+     * ⚠️ 数据范围为「全部」/未配置时直接放行，与改造前完全一致。
+     * 报表内一条明细都没有时也放行，避免「新建报表后无法录入」。
+     */
+    private async ensureReportAccess(id: string, user: UserPayload) {
+        await this.ensureExists(id);
+        const shopIds = await this.resolveScope(user);
+        if (!shopIds) return;
+
+        const visibleEntry = await this.prisma.profitReportEntry.findFirst({
+            where: { reportId: id, shopId: { in: shopIds } },
+            select: { id: true },
+        });
+        const hasAnyEntry = await this.prisma.profitReportEntry.findFirst({
+            where: { reportId: id },
+            select: { id: true },
+        });
+        if (!visibleEntry && hasAnyEntry) {
+            throw new NotFoundException('利润表不存在');
+        }
+    }
+
+    private async ensureDraft(id: string, user?: UserPayload) {
+        // ensureReportAccess 内部已校验存在性
+        if (user) {
+            await this.ensureReportAccess(id, user);
+        } else {
+            await this.ensureExists(id);
+        }
+
         const report = await this.prisma.profitReport.findFirst({
             where: { id, deletedAt: null },
         });
@@ -1268,7 +1433,22 @@ export class ProfitService {
         }
     }
 
+    /**
+     * 明细条目级数据范围校验（写接口用）
+     * 条目所属店铺不在可见范围内时抛 NotFoundException（避免泄露数据存在性）
+     *
+     * ⚠️ 数据范围为「全部」/未配置时直接放行，与改造前完全一致。
+     */
     private async ensureEntryAccess(entryId: string, user: UserPayload) {
-        // TODO: 实现权限检查
+        const shopIds = await this.resolveScope(user);
+        if (!shopIds) return;
+
+        const entry = await this.prisma.profitReportEntry.findFirst({
+            where: { id: entryId, shopId: { in: shopIds } },
+            select: { id: true },
+        });
+        if (!entry) {
+            throw new NotFoundException('利润表明细不存在');
+        }
     }
 }

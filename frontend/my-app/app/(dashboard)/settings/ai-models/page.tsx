@@ -31,9 +31,11 @@ import {
     Bot,
     HelpCircle,
     AlertCircle,
+    Lock,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api';
 import { PermissionGate } from '@/components/PermissionGate';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface AIModel {
     id: string;
@@ -76,7 +78,23 @@ const defaultFormData: FormData = {
     sortOrder: 0,
 };
 
+/**
+ * 字段级权限：字段可见但不可编辑时的可读提示。
+ * ⚠️ 只置灰不提示、提交时仍带上该字段，会让用户误以为改成功了。
+ */
+function ReadOnlyHint() {
+    return (
+        <p className="flex items-center gap-1 text-[11px] leading-4 text-muted-foreground">
+            <Lock className="h-3 w-3" />
+            该字段无编辑权限，已锁定
+        </p>
+    );
+}
+
 export default function AIModelsPage() {
+    // 字段级权限（模块 ai-model）：name / displayName / provider / modelId /
+    // apiEndpoint / config / description / isEnabled / isDefault / isFree
+    const fp = useFieldPermissions('ai-model');
     const [models, setModels] = useState<AIModel[]>([]);
     const [loading, setLoading] = useState(true);
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -144,6 +162,10 @@ export default function AIModelsPage() {
         model: AIModel,
         isEnabled: boolean,
     ) => {
+        if (!fp.canEdit('isEnabled')) {
+            alert('当前角色无「是否启用」编辑权限');
+            return;
+        }
         try {
             await apiClient.toggleAIModel(
                 model.id,
@@ -156,6 +178,25 @@ export default function AIModelsPage() {
     };
 
     const handleSubmit = async () => {
+        if (!fp.loaded) {
+            alert('字段权限加载中，请稍后再试');
+            return;
+        }
+        // 新建时必填字段若不可编辑，前端给不出有效值 —— 显式阻断，避免静默失败
+        if (!editingModel) {
+            const missing = [
+                !fp.canEdit('name') ? '唯一标识' : '',
+                !fp.canEdit('displayName') ? '显示名称' : '',
+                !fp.canEdit('provider') ? '提供商' : '',
+                !fp.canEdit('modelId') ? '模型ID' : '',
+            ].filter(Boolean);
+            if (missing.length) {
+                alert(
+                    `当前角色无「${missing.join('、')}」编辑权限，无法新增模型`,
+                );
+                return;
+            }
+        }
         if (
             !formData.name ||
             !formData.displayName ||
@@ -173,25 +214,35 @@ export default function AIModelsPage() {
                 config.apiKey = formData.apiKey;
             }
 
+            // 字段级权限：不可编辑的字段一律不提交（编辑态保持原值）
             const payload: any = {
-                displayName: formData.displayName,
-                provider: formData.provider,
-                modelId: formData.modelId,
-                apiEndpoint:
-                    formData.apiEndpoint || undefined,
-                description:
-                    formData.description || undefined,
-                isFree: formData.isFree,
-                isDefault: formData.isDefault,
                 sortOrder: formData.sortOrder,
-                config:
-                    Object.keys(config).length > 0
-                        ? config
-                        : undefined,
             };
+            if (fp.canEdit('displayName'))
+                payload.displayName = formData.displayName;
+            if (fp.canEdit('provider'))
+                payload.provider = formData.provider;
+            if (fp.canEdit('modelId'))
+                payload.modelId = formData.modelId;
+            if (fp.canEdit('apiEndpoint'))
+                payload.apiEndpoint =
+                    formData.apiEndpoint || undefined;
+            if (fp.canEdit('description'))
+                payload.description =
+                    formData.description || undefined;
+            if (fp.canEdit('isFree'))
+                payload.isFree = formData.isFree;
+            if (fp.canEdit('isDefault'))
+                payload.isDefault = formData.isDefault;
+            if (
+                fp.canEdit('config') &&
+                Object.keys(config).length > 0
+            ) {
+                payload.config = config;
+            }
 
             if (editingModel) {
-                if (editingModel.config) {
+                if (fp.canEdit('config') && editingModel.config) {
                     const existConfig =
                         editingModel.config as Record<
                             string,
@@ -280,49 +331,82 @@ export default function AIModelsPage() {
                             className="flex items-center justify-between px-4 py-3 border rounded-lg bg-card hover:bg-card-hover transition-colors"
                         >
                             <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                    <span className="font-medium text-sm">
-                                        {model.displayName}
-                                    </span>
-                                    {model.isFree && (
-                                        <Badge
-                                            variant="outline"
-                                            className="text-[10px] text-green-500 border-green-500/30 px-1.5 py-0"
-                                        >
-                                            免费
-                                        </Badge>
+                                {(fp.canView('displayName') ||
+                                    fp.canView('isFree') ||
+                                    fp.canView('isDefault')) && (
+                                    <div className="flex items-center gap-2">
+                                        {fp.canView('displayName') && (
+                                            <span className="font-medium text-sm">
+                                                {model.displayName}
+                                            </span>
+                                        )}
+                                        {fp.canView('isFree') &&
+                                            model.isFree && (
+                                                <Badge
+                                                    variant="outline"
+                                                    className="text-[10px] text-green-500 border-green-500/30 px-1.5 py-0"
+                                                >
+                                                    免费
+                                                </Badge>
+                                            )}
+                                        {fp.canView('isDefault') &&
+                                            model.isDefault && (
+                                                <Badge
+                                                    variant="outline"
+                                                    className="text-[10px] text-blue-500 border-blue-500/30 px-1.5 py-0"
+                                                >
+                                                    默认
+                                                </Badge>
+                                            )}
+                                    </div>
+                                )}
+                                {fp.canView('description') &&
+                                    model.description && (
+                                        <p className="text-xs text-muted-foreground">
+                                            {model.description}
+                                        </p>
                                     )}
-                                    {model.isDefault && (
-                                        <Badge
-                                            variant="outline"
-                                            className="text-[10px] text-blue-500 border-blue-500/30 px-1.5 py-0"
-                                        >
-                                            默认
-                                        </Badge>
-                                    )}
-                                </div>
-                                {model.description && (
-                                    <p className="text-xs text-muted-foreground">
-                                        {model.description}
+                                {(fp.canView('provider') ||
+                                    fp.canView('modelId')) && (
+                                    <p className="text-xs text-muted-foreground/60">
+                                        {fp.canView('provider')
+                                            ? model.provider
+                                            : ''}
+                                        {fp.canView('provider') &&
+                                        fp.canView('modelId')
+                                            ? ' · '
+                                            : ''}
+                                        {fp.canView('modelId')
+                                            ? model.modelId
+                                            : ''}
                                     </p>
                                 )}
-                                <p className="text-xs text-muted-foreground/60">
-                                    {model.provider} ·{' '}
-                                    {model.modelId}
-                                </p>
                             </div>
                             <div className="flex items-center gap-3">
-                                <Switch
-                                    checked={model.isEnabled}
-                                    onCheckedChange={(
-                                        checked,
-                                    ) =>
-                                        handleToggle(
-                                            model,
+                                {fp.canEdit('isEnabled') ? (
+                                    <Switch
+                                        checked={model.isEnabled}
+                                        onCheckedChange={(
                                             checked,
-                                        )
-                                    }
-                                />
+                                        ) =>
+                                            handleToggle(
+                                                model,
+                                                checked,
+                                            )
+                                        }
+                                    />
+                                ) : (
+                                    <span
+                                        className="flex items-center gap-1 text-[11px] text-muted-foreground"
+                                        title="该字段无编辑权限，已锁定"
+                                    >
+                                        <Lock className="h-3 w-3" />
+                                        <Switch
+                                            checked={model.isEnabled}
+                                            disabled
+                                        />
+                                    </span>
+                                )}
                                 <PermissionGate permission="ai-model:update">
                                     <Button
                                         variant="ghost"
@@ -382,201 +466,258 @@ export default function AIModelsPage() {
                     <div className="space-y-4">
                         {/* 第一行：显示名称 + 唯一标识 */}
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                                <div className="flex items-center gap-1.5">
-                                    <Label className="text-xs">
-                                        显示名称 *
-                                    </Label>
-                                    <FieldTip tip="在模型选择下拉菜单中显示的名称" />
+                            {fp.canView('displayName') && (
+                                <div className="space-y-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                        <Label className="text-xs">
+                                            显示名称 *
+                                        </Label>
+                                        <FieldTip tip="在模型选择下拉菜单中显示的名称" />
+                                    </div>
+                                    <Input
+                                        placeholder="例如: DeepSeek V3"
+                                        value={formData.displayName}
+                                        onChange={(e) =>
+                                            setFormData({
+                                                ...formData,
+                                                displayName:
+                                                    e.target.value,
+                                            })
+                                        }
+                                        className="h-9 text-sm"
+                                        disabled={
+                                            !fp.canEdit('displayName')
+                                        }
+                                    />
+                                    {!fp.canEdit('displayName') && (
+                                        <ReadOnlyHint />
+                                    )}
                                 </div>
-                                <Input
-                                    placeholder="例如: DeepSeek V3"
-                                    value={
-                                        formData.displayName
-                                    }
-                                    onChange={(e) =>
-                                        setFormData({
-                                            ...formData,
-                                            displayName:
-                                                e.target.value,
-                                        })
-                                    }
-                                    className="h-9 text-sm"
-                                />
-                            </div>
-                            <div className="space-y-1.5">
-                                <div className="flex items-center gap-1.5">
-                                    <Label className="text-xs">
-                                        唯一标识 *
-                                    </Label>
-                                    <FieldTip tip="模型的唯一标识符，创建后不可修改，如: deepseek-v3" />
+                            )}
+                            {fp.canView('name') && (
+                                <div className="space-y-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                        <Label className="text-xs">
+                                            唯一标识 *
+                                        </Label>
+                                        <FieldTip tip="模型的唯一标识符，创建后不可修改，如: deepseek-v3" />
+                                    </div>
+                                    <Input
+                                        placeholder="例如: deepseek-v3"
+                                        value={formData.name}
+                                        onChange={(e) =>
+                                            setFormData({
+                                                ...formData,
+                                                name: e.target.value,
+                                            })
+                                        }
+                                        className="h-9 text-sm"
+                                        disabled={
+                                            !!editingModel ||
+                                            !fp.canEdit('name')
+                                        }
+                                    />
+                                    {!fp.canEdit('name') && (
+                                        <ReadOnlyHint />
+                                    )}
                                 </div>
-                                <Input
-                                    placeholder="例如: deepseek-v3"
-                                    value={formData.name}
-                                    onChange={(e) =>
-                                        setFormData({
-                                            ...formData,
-                                            name: e.target
-                                                .value,
-                                        })
-                                    }
-                                    className="h-9 text-sm"
-                                    disabled={!!editingModel}
-                                />
-                            </div>
+                            )}
                         </div>
 
                         {/* 第二行：提供商 + 模型ID */}
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                                <div className="flex items-center gap-1.5">
-                                    <Label className="text-xs">
-                                        提供商 *
-                                    </Label>
-                                    <FieldTip tip="服务提供商标识，决定使用哪个Provider实现。值: google、openrouter、deepseek" />
+                            {fp.canView('provider') && (
+                                <div className="space-y-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                        <Label className="text-xs">
+                                            提供商 *
+                                        </Label>
+                                        <FieldTip tip="服务提供商标识，决定使用哪个Provider实现。值: google、openrouter、deepseek" />
+                                    </div>
+                                    <Input
+                                        placeholder="例如: deepseek"
+                                        value={formData.provider}
+                                        onChange={(e) =>
+                                            setFormData({
+                                                ...formData,
+                                                provider:
+                                                    e.target.value,
+                                            })
+                                        }
+                                        className="h-9 text-sm"
+                                        disabled={!fp.canEdit('provider')}
+                                    />
+                                    {!fp.canEdit('provider') && (
+                                        <ReadOnlyHint />
+                                    )}
                                 </div>
-                                <Input
-                                    placeholder="例如: deepseek"
-                                    value={formData.provider}
-                                    onChange={(e) =>
-                                        setFormData({
-                                            ...formData,
-                                            provider:
-                                                e.target.value,
-                                        })
-                                    }
-                                    className="h-9 text-sm"
-                                />
-                            </div>
-                            <div className="space-y-1.5">
-                                <div className="flex items-center gap-1.5">
-                                    <Label className="text-xs">
-                                        模型ID *
-                                    </Label>
-                                    <FieldTip tip="实际调用API时使用的模型标识，如: deepseek-chat、gemini-2.5-flash" />
+                            )}
+                            {fp.canView('modelId') && (
+                                <div className="space-y-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                        <Label className="text-xs">
+                                            模型ID *
+                                        </Label>
+                                        <FieldTip tip="实际调用API时使用的模型标识，如: deepseek-chat、gemini-2.5-flash" />
+                                    </div>
+                                    <Input
+                                        placeholder="例如: deepseek-chat"
+                                        value={formData.modelId}
+                                        onChange={(e) =>
+                                            setFormData({
+                                                ...formData,
+                                                modelId:
+                                                    e.target.value,
+                                            })
+                                        }
+                                        className="h-9 text-sm"
+                                        autoComplete="off"
+                                        disabled={!fp.canEdit('modelId')}
+                                    />
+                                    {!fp.canEdit('modelId') && (
+                                        <ReadOnlyHint />
+                                    )}
                                 </div>
-                                <Input
-                                    placeholder="例如: deepseek-chat"
-                                    value={formData.modelId}
-                                    onChange={(e) =>
-                                        setFormData({
-                                            ...formData,
-                                            modelId:
-                                                e.target.value,
-                                        })
-                                    }
-                                    className="h-9 text-sm"
-                                    autoComplete="off"
-                                />
-                            </div>
+                            )}
                         </div>
 
-                        {/* 第三行：API Key */}
-                        <div className="space-y-1.5">
-                            <div className="flex items-center gap-1.5">
-                                <Label className="text-xs">
-                                    API Key
-                                </Label>
-                                <FieldTip tip="模型专用的API Key。留空则使用服务器环境变量配置。编辑时留空不会覆盖已有Key。" />
+                        {/* 第三行：API Key（属于 config 字段） */}
+                        {fp.canView('config') && (
+                            <div className="space-y-1.5">
+                                <div className="flex items-center gap-1.5">
+                                    <Label className="text-xs">
+                                        API Key
+                                    </Label>
+                                    <FieldTip tip="模型专用的API Key。留空则使用服务器环境变量配置。编辑时留空不会覆盖已有Key。" />
+                                </div>
+                                <Input
+                                    type="text"
+                                    placeholder="sk-..."
+                                    value={formData.apiKey}
+                                    onChange={(e) =>
+                                        setFormData({
+                                            ...formData,
+                                            apiKey: e.target.value,
+                                        })
+                                    }
+                                    className="h-9 text-sm"
+                                    autoComplete="new-password"
+                                    data-lpignore="true"
+                                    data-1p-ignore
+                                    disabled={!fp.canEdit('config')}
+                                />
+                                {!fp.canEdit('config') && <ReadOnlyHint />}
                             </div>
-                            <Input
-                                type="text"
-                                placeholder="sk-..."
-                                value={formData.apiKey}
-                                onChange={(e) =>
-                                    setFormData({
-                                        ...formData,
-                                        apiKey: e.target.value,
-                                    })
-                                }
-                                className="h-9 text-sm"
-                                autoComplete="new-password"
-                                data-lpignore="true"
-                                data-1p-ignore
-                            />
-                        </div>
+                        )}
 
                         {/* 第四行：描述 */}
-                        <div className="space-y-1.5">
-                            <div className="flex items-center gap-1.5">
-                                <Label className="text-xs">
-                                    描述
-                                </Label>
-                                <FieldTip tip="简要描述该模型的特点和用途" />
+                        {fp.canView('description') && (
+                            <div className="space-y-1.5">
+                                <div className="flex items-center gap-1.5">
+                                    <Label className="text-xs">
+                                        描述
+                                    </Label>
+                                    <FieldTip tip="简要描述该模型的特点和用途" />
+                                </div>
+                                <Textarea
+                                    placeholder="简要描述该模型的特点..."
+                                    value={formData.description}
+                                    onChange={(e) =>
+                                        setFormData({
+                                            ...formData,
+                                            description:
+                                                e.target.value,
+                                        })
+                                    }
+                                    className="min-h-[60px] text-sm resize-none"
+                                    disabled={!fp.canEdit('description')}
+                                />
+                                {!fp.canEdit('description') && (
+                                    <ReadOnlyHint />
+                                )}
                             </div>
-                            <Textarea
-                                placeholder="简要描述该模型的特点..."
-                                value={formData.description}
-                                onChange={(e) =>
-                                    setFormData({
-                                        ...formData,
-                                        description:
-                                            e.target.value,
-                                    })
-                                }
-                                className="min-h-[60px] text-sm resize-none"
-                            />
-                        </div>
+                        )}
 
                         {/* 第五行：API端点 */}
-                        <div className="space-y-1.5">
-                            <div className="flex items-center gap-1.5">
-                                <Label className="text-xs">
-                                    API端点
-                                </Label>
-                                <FieldTip tip="可选的自定义API端点，用于中转服务或私有部署。留空则使用Provider默认端点。" />
+                        {fp.canView('apiEndpoint') && (
+                            <div className="space-y-1.5">
+                                <div className="flex items-center gap-1.5">
+                                    <Label className="text-xs">
+                                        API端点
+                                    </Label>
+                                    <FieldTip tip="可选的自定义API端点，用于中转服务或私有部署。留空则使用Provider默认端点。" />
+                                </div>
+                                <Input
+                                    placeholder="例如: https://openrouter.ai/api/v1"
+                                    value={formData.apiEndpoint}
+                                    onChange={(e) =>
+                                        setFormData({
+                                            ...formData,
+                                            apiEndpoint:
+                                                e.target.value,
+                                        })
+                                    }
+                                    className="h-9 text-sm"
+                                    disabled={!fp.canEdit('apiEndpoint')}
+                                />
+                                {!fp.canEdit('apiEndpoint') && (
+                                    <ReadOnlyHint />
+                                )}
                             </div>
-                            <Input
-                                placeholder="例如: https://openrouter.ai/api/v1"
-                                value={formData.apiEndpoint}
-                                onChange={(e) =>
-                                    setFormData({
-                                        ...formData,
-                                        apiEndpoint:
-                                            e.target.value,
-                                    })
-                                }
-                                className="h-9 text-sm"
-                            />
-                        </div>
+                        )}
 
                         {/* 第六行：开关和排序 */}
                         <div className="grid grid-cols-3 gap-4">
-                            <div className="flex items-center gap-2">
-                                <Switch
-                                    checked={formData.isFree}
-                                    onCheckedChange={(
-                                        checked,
-                                    ) =>
-                                        setFormData({
-                                            ...formData,
-                                            isFree: checked,
-                                        })
-                                    }
-                                />
-                                <Label className="text-xs">
-                                    免费模型
-                                </Label>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Switch
-                                    checked={
-                                        formData.isDefault
-                                    }
-                                    onCheckedChange={(
-                                        checked,
-                                    ) =>
-                                        setFormData({
-                                            ...formData,
-                                            isDefault: checked,
-                                        })
-                                    }
-                                />
-                                <Label className="text-xs">
-                                    默认模型
-                                </Label>
-                            </div>
+                            {fp.canView('isFree') && (
+                                <div className="flex items-center gap-2">
+                                    <Switch
+                                        checked={formData.isFree}
+                                        disabled={!fp.canEdit('isFree')}
+                                        onCheckedChange={(
+                                            checked,
+                                        ) =>
+                                            setFormData({
+                                                ...formData,
+                                                isFree: checked,
+                                            })
+                                        }
+                                    />
+                                    <Label className="text-xs">
+                                        免费模型
+                                    </Label>
+                                    {!fp.canEdit('isFree') && (
+                                        <Lock
+                                            className="h-3 w-3 text-muted-foreground"
+                                            aria-label="该字段无编辑权限，已锁定"
+                                        />
+                                    )}
+                                </div>
+                            )}
+                            {fp.canView('isDefault') && (
+                                <div className="flex items-center gap-2">
+                                    <Switch
+                                        checked={formData.isDefault}
+                                        disabled={!fp.canEdit('isDefault')}
+                                        onCheckedChange={(
+                                            checked,
+                                        ) =>
+                                            setFormData({
+                                                ...formData,
+                                                isDefault: checked,
+                                            })
+                                        }
+                                    />
+                                    <Label className="text-xs">
+                                        默认模型
+                                    </Label>
+                                    {!fp.canEdit('isDefault') && (
+                                        <Lock
+                                            className="h-3 w-3 text-muted-foreground"
+                                            aria-label="该字段无编辑权限，已锁定"
+                                        />
+                                    )}
+                                </div>
+                            )}
                             <div className="space-y-1.5">
                                 <Label className="text-xs">
                                     排序
@@ -614,7 +755,7 @@ export default function AIModelsPage() {
                         </Button>
                         <Button
                             onClick={handleSubmit}
-                            disabled={saving}
+                            disabled={saving || !fp.loaded}
                         >
                             {saving && (
                                 <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />

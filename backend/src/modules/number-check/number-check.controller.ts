@@ -23,6 +23,21 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { NumberCheckService } from './number-check.service';
+import { PrismaService } from '../../config/prisma.service';
+import {
+  DataScope,
+  FieldKeyMapping,
+  FieldPermissionService,
+} from '../role/field-permission.service';
+
+/** 编号查重字段映射：用于「信息权限」读取脱敏 */
+const NUMBER_CHECK_FIELD_MAP: FieldKeyMapping[] = [
+  { field: 'batchNo', key: 'batchNo' },
+  { field: 'fileId', key: 'fileId' },
+  { field: 'totalCount', key: 'totalCount' },
+  { field: 'code', key: 'code' },
+  { field: 'isDuplicate', key: 'isDuplicate' },
+];
 import { DedupDto } from './dto/dedup.dto';
 import { ParseCodesDto } from './dto/parse-codes.dto';
 import { CreateBatchDto } from './dto/create-batch.dto';
@@ -40,14 +55,52 @@ import { CurrentUser, UserPayload } from '../../common/decorators/current-user.d
 @UseGuards(JwtAuthGuard, PermissionGuard)
 @ApiBearerAuth()
 export class NumberCheckController {
-  constructor(private readonly numberCheckService: NumberCheckService) {}
+  constructor(
+    private readonly numberCheckService: NumberCheckService,
+    private readonly fieldPermissionService: FieldPermissionService,
+  ) {}
+
+  /**
+   * 递归脱敏（编号查重结果不可编辑）
+   */
+  private stripNumberCheckDeep(node: any, state: any): any {
+    return this.fieldPermissionService.stripHiddenFieldsDeep(
+      node,
+      NUMBER_CHECK_FIELD_MAP,
+      state,
+    );
+  }
+
+  /**
+   * 数据范围：该用户是否只能看自己提交的编号
+   * @returns 需要限定时返回 userId；不限定时返回 undefined
+   */
+  private async resolveOwnerFilter(user: UserPayload): Promise<string | undefined> {
+    const scope = await this.fieldPermissionService.resolveDataScope(
+      user.sub,
+      'number-check',
+      user.roles ?? [],
+    );
+    // 编号查重的隔离语义是"按人"，因此 OWN_SHOP 与 OWN_CREATED 都按提交人限制
+    return scope === DataScope.ALL ? undefined : user.sub;
+  }
 
   @Post('dedup')
   @Permissions('number-check:dedup')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '编号查重' })
-  async dedup(@Body() dto: DedupDto) {
-    return this.numberCheckService.dedup(dto);
+  async dedup(
+    @Body() dto: DedupDto,
+    @CurrentUser() user: UserPayload,
+  ) {
+    const onlyUserId = await this.resolveOwnerFilter(user);
+    const result = await this.numberCheckService.dedup(dto, onlyUserId);
+    const state = await this.fieldPermissionService.resolve(
+      user.sub,
+      'number-check',
+      user.roles ?? [],
+    );
+    return this.stripNumberCheckDeep(result, state);
   }
 
   @Post('import/preview')
@@ -87,15 +140,36 @@ export class NumberCheckController {
   @Get('records')
   @Permissions('number-check:list')
   @ApiOperation({ summary: '历史编号列表' })
-  async listRecords(@Query() filter: RecordFilterDto) {
-    return this.numberCheckService.listRecords(filter);
+  async listRecords(
+    @Query() filter: RecordFilterDto,
+    @CurrentUser() user: UserPayload,
+  ) {
+    const onlyUserId = await this.resolveOwnerFilter(user);
+    const result = await this.numberCheckService.listRecords(filter, onlyUserId);
+    const state = await this.fieldPermissionService.resolve(
+      user.sub,
+      'number-check',
+      user.roles ?? [],
+    );
+    return this.stripNumberCheckDeep(result, state);
   }
 
   @Get('records/:id')
   @Permissions('number-check:detail')
   @ApiOperation({ summary: '历史编号详情' })
-  async getRecord(@Param('id') id: string) {
-    return this.numberCheckService.getRecord(id);
+  async getRecord(
+    @Param('id') id: string,
+    @CurrentUser() user: UserPayload,
+  ) {
+    const onlyUserId = await this.resolveOwnerFilter(user);
+    const record = await this.numberCheckService.getRecord(id, onlyUserId);
+    const state = await this.fieldPermissionService.resolve(
+      user.sub,
+      'number-check',
+      user.roles ?? [],
+    );
+    // 详情与列表口径一致（原先详情未脱敏，配置在此路径上失效）
+    return this.stripNumberCheckDeep(record, state);
   }
 
   @Patch('records/:id')
@@ -104,16 +178,49 @@ export class NumberCheckController {
   async updateRecord(
     @Param('id') id: string,
     @Body() dto: UpdateRecordDto,
+    @CurrentUser() user: UserPayload,
   ) {
-    return this.numberCheckService.updateRecord(id, dto);
+    // 数据范围：非「全部」时只能改自己提交的记录（越权返回 404）
+    const onlyUserId = await this.resolveOwnerFilter(user);
+    const updated = await this.numberCheckService.updateRecord(
+      id,
+      dto,
+      onlyUserId,
+    );
+    // 写响应与读接口一致地脱敏
+    const state = await this.fieldPermissionService.resolve(
+      user.sub,
+      'number-check',
+      user.roles ?? [],
+    );
+    return this.stripNumberCheckDeep(updated, state);
   }
 
   @Post('export-duplicates')
   @Permissions('number-check:export')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '导出重复清单' })
-  async exportDuplicates(@Body() dto: ExportDuplicatesDto): Promise<StreamableFile> {
-    return this.numberCheckService.exportDuplicates(dto);
+  async exportDuplicates(
+    @Body() dto: ExportDuplicatesDto,
+    @CurrentUser() user: UserPayload,
+  ): Promise<StreamableFile> {
+    const onlyUserId = await this.resolveOwnerFilter(user);
+    // 导出遵守字段级权限（去掉不可见列）
+    const state = await this.fieldPermissionService.resolve(
+      user.sub,
+      'number-check',
+      user.roles ?? [],
+    );
+    const hiddenFieldKeys = new Set(
+      NUMBER_CHECK_FIELD_MAP.filter((m) => !state.canView.has(m.field)).map(
+        (m) => m.field,
+      ),
+    );
+    return this.numberCheckService.exportDuplicates(
+      dto,
+      onlyUserId,
+      hiddenFieldKeys,
+    );
   }
 
   @Get('batches/:batchNo/file')
@@ -121,15 +228,24 @@ export class NumberCheckController {
   @ApiOperation({ summary: '下载批次原始文件' })
   async downloadBatchFile(
     @Param('batchNo') batchNo: string,
+    @CurrentUser() user: UserPayload,
   ): Promise<StreamableFile> {
-    return this.numberCheckService.downloadBatchFile(batchNo);
+    const onlyUserId = await this.resolveOwnerFilter(user);
+    return this.numberCheckService.downloadBatchFile(batchNo, onlyUserId);
   }
 
   @Get('stats')
   @Permissions('number-check:view')
   @ApiOperation({ summary: '首页统计' })
-  async getStats() {
-    return this.numberCheckService.getStats();
+  async getStats(@CurrentUser() user: UserPayload) {
+    const onlyUserId = await this.resolveOwnerFilter(user);
+    const stats = await this.numberCheckService.getStats(onlyUserId);
+    const state = await this.fieldPermissionService.resolve(
+      user.sub,
+      'number-check',
+      user.roles ?? [],
+    );
+    return this.stripNumberCheckDeep(stats, state);
   }
 
   @Get('config')

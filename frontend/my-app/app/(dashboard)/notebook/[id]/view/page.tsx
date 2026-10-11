@@ -7,9 +7,11 @@ import { RichTextEditor } from '@/components/shared/RichTextEditor';
 import { ArrowLeft, Edit } from 'lucide-react';
 import { notebookAPI, Notebook } from '@/lib/api';
 import { usePermissionStore } from '@/lib/stores/permission-store';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import { toast } from 'sonner';
 
 export default function ViewNotebookPage() {
+    const fp = useFieldPermissions('notebook');
     const router = useRouter();
     const params = useParams();
     const id = params.id as string;
@@ -67,7 +69,9 @@ export default function ViewNotebookPage() {
                         <ArrowLeft className="w-4 h-4 mr-2" />
                         返回
                     </Button>
-                    <h1 className="text-2xl font-bold">{notebook.title}</h1>
+                    <h1 className="text-2xl font-bold">
+                        {fp.canView('title') ? notebook.title : '******'}
+                    </h1>
                     <span className="text-sm px-2 py-1 bg-muted rounded">
                         只读模式
                     </span>
@@ -93,10 +97,16 @@ export default function ViewNotebookPage() {
             </div>
 
             <div>
-                <RichTextEditor
-                    mode="readonly"
-                    initialContent={notebook.content}
-                />
+                {fp.canView('content') ? (
+                    <RichTextEditor
+                        mode="readonly"
+                        initialContent={notebook.content}
+                    />
+                ) : (
+                    <div className="py-6 text-center text-sm text-muted-foreground">
+                        你没有「内容」的查看权限
+                    </div>
+                )}
             </div>
         </div>
     );

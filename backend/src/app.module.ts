@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from './config/config.module';
 import { PrismaModule } from './config/prisma.module';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -11,6 +12,7 @@ import { ImageModule } from './modules/image/image.module';
 import { RoleModule } from './modules/role/role.module';
 import { ConfigModule as SystemConfigModule } from './modules/config/config.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { AuditInterceptor } from './modules/audit/interceptors/audit.interceptor';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ContentVersionModule } from './modules/content-version/content-version.module';
 import { AIModule } from './modules/ai/ai.module';
@@ -87,7 +89,13 @@ import { AppService } from './app.service';
     PurchaseReceiptModule,
   ],
   controllers: [AppController],
-  providers: [AppService, RedisService],
+  providers: [
+    AppService,
+    RedisService,
+    // 全局审计拦截器：记录写操作（POST/PUT/PATCH/DELETE 与导出），
+    // 失败不影响业务；请求体已脱敏（见 AuditInterceptor.sanitizeBody）
+    { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
+  ],
   exports: [RedisService],
 })
 export class AppModule {}

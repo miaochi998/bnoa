@@ -14,6 +14,7 @@ import {
   StreamableFile,
   UseInterceptors,
   UploadedFile,
+  ForbiddenException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -26,7 +27,46 @@ import {
 } from '@nestjs/swagger';
 import { FileService } from './file.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionGuard } from '../../common/guards/permission.guard';
+import { Permissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { UserPayload } from '../../common/decorators/current-user.decorator';
+import {
+  FieldKeyMapping,
+  FieldPermissionService,
+} from '../role/field-permission.service';
+
+/**
+ * 文件字段映射：用于「信息权限」的读取脱敏与写入过滤
+ * 覆盖文件中心列表/详情，可按角色隐藏：上传者、所属文件夹、存储路径、
+ * 访问地址、校验值、安全扫描、分享码等。
+ * ⚠️ 隐藏 url 会影响前端缩略图/预览的展示（由配置者自行权衡）。
+ */
+const FILE_FIELD_MAP: FieldKeyMapping[] = [
+  // 基本信息
+  { field: 'name', key: 'name' },
+  { field: 'originalName', key: 'originalName' },
+  { field: 'extension', key: 'extension' },
+  { field: 'size', key: 'size' },
+  { field: 'category', key: 'category' },
+  { field: 'createdAt', key: 'createdAt' },
+  // 归属信息
+  { field: 'uploadedBy', key: 'uploadedBy' },
+  { field: 'uploadedBy', key: 'user' },
+  { field: 'folderId', key: 'folderId' },
+  { field: 'folderId', key: 'folder' },
+  // 列表接口把文件夹名拍平成 folderName（响应里没有嵌套 folder 对象），需单独映射
+  { field: 'folder.name', key: 'folderName' },
+  // 存储与安全（默认敏感）
+  { field: 'url', key: 'url' },
+  { field: 'path', key: 'path' },
+  { field: 'md5', key: 'md5' },
+  { field: 'virusScanResult', key: 'virusScanResult' },
+  { field: 'shareCode', key: 'shareCode' },
+];
+
+/** 需要递归处理的数组字段名 */
+const FILE_NESTED_ARRAYS = ['items', 'list', 'data', 'files'];
 import { FileFilterDto } from './dto/file-filter.dto';
 import {
   RenameFileDto,
@@ -41,39 +81,72 @@ import {
  */
 @ApiTags('文件管理')
 @Controller('files')
-@UseGuards(JwtAuthGuard)
+// 注意：必须挂 PermissionGuard，否则 @Permissions 装饰器不会生效（此前只挂了 JwtAuthGuard）
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @ApiBearerAuth()
 export class FileController {
-  constructor(private readonly fileService: FileService) {}
+  constructor(
+    private readonly fileService: FileService,
+    private readonly fieldPermissionService: FieldPermissionService,
+  ) {}
+
+  /** 当前用户在本模块的字段权限 */
+  private resolveFields(user: UserPayload) {
+    return this.fieldPermissionService.resolve(
+      user.sub,
+      'file',
+      user.roles ?? [],
+    );
+  }
+
+  /** 递归脱敏（文件对象 / 列表 / 分页对象都兼容） */
+  private stripFileDeep(node: any, state: any): any {
+    return this.fieldPermissionService.stripHiddenFieldsDeep(
+      node,
+      FILE_FIELD_MAP,
+      state,
+    );
+  }
 
   /**
    * 获取文件列表
    */
   @Get()
+  @Permissions('file:list')
   @ApiOperation({ summary: '获取文件列表' })
   async findAll(
     @Query() filter: FileFilterDto,
-    @CurrentUser('userId') userId: string,
+    @CurrentUser() user: UserPayload,
   ) {
-    return this.fileService.findAll(filter, userId);
+    const result = await this.fileService.findAll(
+      filter, user.userId ?? user.sub,
+    );
+    const state = await this.resolveFields(user);
+    return this.stripFileDeep(result, state);
   }
 
   /**
    * 获取文件详情
    */
   @Get(':id')
+  @Permissions('file:list')
   @ApiOperation({ summary: '获取文件详情' })
   async findById(
     @Param('id') id: string,
-    @CurrentUser('userId') userId: string,
+    @CurrentUser() user: UserPayload,
   ) {
-    return this.fileService.findById(id, userId);
+    const file = await this.fileService.findById(
+      id, user.userId ?? user.sub,
+    );
+    const state = await this.resolveFields(user);
+    return this.stripFileDeep(file, state);
   }
 
   /**
    * 下载单个文件
    */
   @Get(':id/download')
+  @Permissions('file:download')
   @ApiOperation({ summary: '下载单个文件' })
   async downloadFile(
     @Param('id') id: string,
@@ -95,32 +168,57 @@ export class FileController {
    * 重命名文件
    */
   @Put(':id/rename')
+  @Permissions('file:rename')
   @ApiOperation({ summary: '重命名文件' })
   async rename(
     @Param('id') id: string,
     @Body() dto: RenameFileDto,
-    @CurrentUser('userId') userId: string,
+    @CurrentUser() user: UserPayload,
   ) {
-    return this.fileService.rename(id, dto, userId);
+    const state = await this.resolveFields(user);
+    const safe = this.fieldPermissionService.stripUneditableFields(
+      dto as any,
+      FILE_FIELD_MAP,
+      state,
+    );
+    if (!safe.name) {
+      throw new ForbiddenException('没有「文件名」的编辑权限');
+    }
+    return this.fileService.rename(
+      id, safe as RenameFileDto, user.userId ?? user.sub,
+    );
   }
 
   /**
    * 移动文件
    */
   @Put(':id/move')
+  @Permissions('file:move')
   @ApiOperation({ summary: '移动文件' })
   async move(
     @Param('id') id: string,
     @Body() dto: MoveFileDto,
-    @CurrentUser('userId') userId: string,
+    @CurrentUser() user: UserPayload,
   ) {
-    return this.fileService.move(id, dto, userId);
+    const state = await this.resolveFields(user);
+    const safe = this.fieldPermissionService.stripUneditableFields(
+      dto as any,
+      FILE_FIELD_MAP,
+      state,
+    );
+    if (Object.keys(safe).length === 0) {
+      throw new ForbiddenException('没有文件字段的编辑权限');
+    }
+    return this.fileService.move(
+      id, safe as MoveFileDto, user.userId ?? user.sub,
+    );
   }
 
   /**
    * 批量移动文件
    */
   @Post('batch-move')
+  @Permissions('file:move')
   @ApiOperation({ summary: '批量移动文件' })
   async batchMove(
     @Body() dto: BatchMoveFilesDto,
@@ -133,6 +231,7 @@ export class FileController {
    * 复制文件
    */
   @Post(':id/copy')
+  @Permissions('file:copy')
   @ApiOperation({ summary: '复制文件' })
   async copy(
     @Param('id') id: string,
@@ -146,6 +245,7 @@ export class FileController {
    * 批量复制文件
    */
   @Post('batch-copy')
+  @Permissions('file:copy')
   @ApiOperation({ summary: '批量复制文件' })
   async batchCopy(
     @Body() dto: { fileIds: string[]; folderId?: string },
@@ -158,6 +258,7 @@ export class FileController {
    * 删除文件（移到回收站）
    */
   @Delete(':id')
+  @Permissions('file:delete')
   @ApiOperation({ summary: '删除文件（移到回收站）' })
   async delete(@Param('id') id: string, @CurrentUser('userId') userId: string) {
     await this.fileService.delete(id, userId);
@@ -168,6 +269,7 @@ export class FileController {
    * 批量删除文件
    */
   @Post('batch-delete')
+  @Permissions('file:delete')
   @ApiOperation({ summary: '批量删除文件' })
   async batchDelete(
     @Body() dto: BatchDeleteFilesDto,
@@ -180,6 +282,7 @@ export class FileController {
    * 获取回收站文件列表
    */
   @Get('recycle-bin/list')
+  @Permissions('file:trash')
   @ApiOperation({ summary: '获取回收站文件列表' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'pageSize', required: false, type: Number })
@@ -195,6 +298,7 @@ export class FileController {
    * 恢复已删除文件
    */
   @Post(':id/restore')
+  @Permissions('file:restore')
   @ApiOperation({ summary: '恢复已删除文件' })
   async restore(
     @Param('id') id: string,
@@ -208,6 +312,7 @@ export class FileController {
    * 永久删除文件
    */
   @Delete(':id/permanent')
+  @Permissions('file:permanent-delete')
   @ApiOperation({ summary: '永久删除文件' })
   async permanentDelete(
     @Param('id') id: string,
@@ -221,6 +326,7 @@ export class FileController {
    * 批量永久删除文件
    */
   @Post('recycle-bin/batch-permanent')
+  @Permissions('file:permanent-delete')
   @ApiOperation({ summary: '批量永久删除文件' })
   async batchPermanentDelete(
     @Body() dto: { fileIds: string[] },
@@ -233,6 +339,7 @@ export class FileController {
    * 清空回收站
    */
   @Post('recycle-bin/clear')
+  @Permissions('file:permanent-delete')
   @ApiOperation({ summary: '清空回收站' })
   async clearRecycleBin(@CurrentUser('userId') userId: string) {
     return this.fileService.clearRecycleBin(userId);
@@ -242,18 +349,46 @@ export class FileController {
    * 获取文件统计信息
    */
   @Get('stats/overview')
+  @Permissions('file:list')
   @ApiOperation({ summary: '获取文件统计信息' })
   async getStats(
-    @CurrentUser('userId') userId: string,
+    @CurrentUser() user: UserPayload,
     @Query('storageMode') storageMode?: string,
   ) {
-    return this.fileService.getStats(userId, storageMode);
+    const stats: any = await this.fileService.getStats(
+      user.userId ?? user.sub,
+      storageMode,
+    );
+    const state = await this.resolveFields(user);
+    // 汇总值同受字段权限控制：隐藏了「文件大小」就不应再多给一个 totalSize 让人反推
+    if (stats && typeof stats === 'object' && !state.canView.has('size')) {
+      delete stats.totalSize;
+      if (stats.byType && typeof stats.byType === 'object') {
+        for (const value of Object.values(stats.byType)) {
+          if (value && typeof value === 'object') {
+            delete (value as any).size;
+          }
+        }
+      }
+      if (Array.isArray(stats.byExtension)) {
+        stats.byExtension = stats.byExtension.map((item: any) => {
+          if (item && typeof item === 'object') {
+            const copy = { ...item };
+            delete copy.size;
+            return copy;
+          }
+          return item;
+        });
+      }
+    }
+    return stats;
   }
 
   /**
    * 获取回收站保留天数配置
    */
   @Get('recycle-bin/retention-days')
+  @Permissions('file:trash')
   @ApiOperation({ summary: '获取回收站保留天数配置' })
   async getRetentionDays() {
     return this.fileService.getRecycleBinRetentionDays();
@@ -263,6 +398,7 @@ export class FileController {
    * 更新回收站保留天数配置
    */
   @Put('recycle-bin/retention-days')
+  @Permissions('file-storage:update')
   @ApiOperation({ summary: '更新回收站保留天数配置' })
   async updateRetentionDays(
     @Body() dto: { days: number },
@@ -275,6 +411,7 @@ export class FileController {
    * 打包下载多个文件
    */
   @Post('package-download')
+  @Permissions('file:download')
   @ApiOperation({ summary: '打包下载多个文件' })
   async packageDownload(
     @Body() dto: { fileIds: string[] },
@@ -295,6 +432,7 @@ export class FileController {
    * 上传视频缩略图
    */
   @Post(':id/thumbnail')
+  @Permissions('file:rename')
   @ApiOperation({ summary: '上传视频缩略图' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('thumbnail'))
@@ -310,6 +448,7 @@ export class FileController {
    * 预览文件（代理访问存储服务）
    */
   @Get(':id/preview')
+  @Permissions('file:preview')
   @ApiOperation({ summary: '预览文件' })
   async previewFile(
     @Param('id') id: string,
@@ -332,6 +471,7 @@ export class FileController {
    * 预览缩略图（代理访问存储服务）
    */
   @Get(':id/thumbnail-preview')
+  @Permissions('file:preview')
   @ApiOperation({ summary: '预览缩略图' })
   async previewThumbnail(
     @Param('id') id: string,

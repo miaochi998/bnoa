@@ -25,14 +25,15 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface Surcharge {
   id: string;
-  name: string;
-  provinces: string[];
-  weightFrom: number | null;
-  weightTo: number | null;
-  amount: number;
+  name?: string;
+  provinces?: string[];
+  weightFrom?: number | null;
+  weightTo?: number | null;
+  amount?: number;
 }
 
 interface SurchargePanelProps {
@@ -51,6 +52,7 @@ const ALL_PROVINCES = [
 ];
 
 export function SurchargePanel({ companyId }: SurchargePanelProps) {
+  const fp = useFieldPermissions('express');
   const [surcharges, setSurcharges] = useState<Surcharge[]>([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -100,11 +102,11 @@ export function SurchargePanel({ companyId }: SurchargePanelProps) {
   const handleEdit = (surcharge: Surcharge) => {
     setEditingSurcharge(surcharge);
     setFormData({
-      name: surcharge.name,
-      provinces: surcharge.provinces,
+      name: surcharge.name ?? '',
+      provinces: surcharge.provinces ?? [],
       weightFrom: surcharge.weightFrom?.toString() || '',
       weightTo: surcharge.weightTo?.toString() || '',
-      amount: surcharge.amount.toString(),
+      amount: surcharge.amount?.toString() ?? '',
     });
     setDialogOpen(true);
   };
@@ -124,25 +126,48 @@ export function SurchargePanel({ companyId }: SurchargePanelProps) {
 
   // 保存附加费
   const handleSave = async () => {
-    if (!formData.name || formData.provinces.length === 0 || !formData.amount) {
-      alert('请填写完整信息');
+    // 只提交「可编辑」的字段：字段被配成只读/不可见时不发送，避免误改或 400
+    const data: Record<string, any> = {};
+
+    if (fp.canEdit('surcharge.name')) {
+      if (!formData.name) {
+        alert('请填写规则名称');
+        return;
+      }
+      data.name = formData.name;
+    }
+    if (fp.canEdit('surcharge.provinces')) {
+      if (formData.provinces.length === 0) {
+        alert('请选择适用省份');
+        return;
+      }
+      data.provinces = formData.provinces;
+    }
+    if (fp.canEdit('surcharge.weightFrom')) {
+      data.weightFrom = formData.weightFrom ? parseFloat(formData.weightFrom) : undefined;
+    }
+    if (fp.canEdit('surcharge.weightTo')) {
+      data.weightTo = formData.weightTo ? parseFloat(formData.weightTo) : undefined;
+    }
+    if (fp.canEdit('surcharge.amount')) {
+      if (!formData.amount) {
+        alert('请填写加收金额');
+        return;
+      }
+      data.amount = parseFloat(formData.amount);
+    }
+
+    if (Object.keys(data).length === 0) {
+      alert('你没有附加费字段的编辑权限');
       return;
     }
 
     setSaving(true);
     try {
-      const data = {
-        name: formData.name,
-        provinces: formData.provinces,
-        weightFrom: formData.weightFrom ? parseFloat(formData.weightFrom) : undefined,
-        weightTo: formData.weightTo ? parseFloat(formData.weightTo) : undefined,
-        amount: parseFloat(formData.amount),
-      };
-
       if (editingSurcharge) {
-        await apiClient.updateExpressSurcharge(editingSurcharge.id, data);
+        await apiClient.updateExpressSurcharge(editingSurcharge.id, data as any);
       } else {
-        await apiClient.createExpressSurcharge(companyId, data);
+        await apiClient.createExpressSurcharge(companyId, data as any);
       }
 
       alert('保存成功');
@@ -165,6 +190,19 @@ export function SurchargePanel({ companyId }: SurchargePanelProps) {
     }));
   };
 
+  // 字段权限派生：任一字段可编辑 / 新建记录所需的关键字段是否都可编辑
+  const canEditAny =
+    fp.canEdit('surcharge.name') ||
+    fp.canEdit('surcharge.provinces') ||
+    fp.canEdit('surcharge.weightFrom') ||
+    fp.canEdit('surcharge.weightTo') ||
+    fp.canEdit('surcharge.amount');
+
+  const canCreate =
+    fp.canEdit('surcharge.name') &&
+    fp.canEdit('surcharge.provinces') &&
+    fp.canEdit('surcharge.amount');
+
   return (
     <div className="space-y-4">
       <Card>
@@ -174,10 +212,12 @@ export function SurchargePanel({ companyId }: SurchargePanelProps) {
               <AlertCircle className="w-5 h-5" />
               附加费管理
             </CardTitle>
-            <Button size="sm" onClick={handleCreate}>
-              <Plus className="w-4 h-4 mr-1" />
-              添加附加费
-            </Button>
+            {canCreate && (
+              <Button size="sm" onClick={handleCreate}>
+                <Plus className="w-4 h-4 mr-1" />
+                添加附加费
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -189,53 +229,74 @@ export function SurchargePanel({ companyId }: SurchargePanelProps) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>名称</TableHead>
-                  <TableHead>适用省份</TableHead>
-                  <TableHead>重量范围</TableHead>
-                  <TableHead>加收金额</TableHead>
+                  {fp.canView('surcharge.name') && <TableHead>名称</TableHead>}
+                  {fp.canView('surcharge.provinces') && <TableHead>适用省份</TableHead>}
+                  {(fp.canView('surcharge.weightFrom') || fp.canView('surcharge.weightTo')) && (
+                    <TableHead>重量范围</TableHead>
+                  )}
+                  {fp.canView('surcharge.amount') && <TableHead>加收金额</TableHead>}
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {surcharges.map((surcharge) => (
                   <TableRow key={surcharge.id}>
-                    <TableCell className="font-medium">{surcharge.name}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {surcharge.provinces.slice(0, 3).map(province => (
-                          <Badge key={province} variant="secondary" className="text-xs">
-                            {province}
-                          </Badge>
-                        ))}
-                        {surcharge.provinces.length > 3 && (
-                          <Badge variant="outline" className="text-xs">
-                            +{surcharge.provinces.length - 3}
-                          </Badge>
+                    {fp.canView('surcharge.name') && (
+                      <TableCell className="font-medium">{surcharge.name ?? ''}</TableCell>
+                    )}
+                    {fp.canView('surcharge.provinces') && (
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {(surcharge.provinces ?? []).slice(0, 3).map(province => (
+                            <Badge key={province} variant="secondary" className="text-xs">
+                              {province}
+                            </Badge>
+                          ))}
+                          {(surcharge.provinces ?? []).length > 3 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{(surcharge.provinces ?? []).length - 3}
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
+                    {(fp.canView('surcharge.weightFrom') || fp.canView('surcharge.weightTo')) && (
+                      <TableCell>
+                        {(surcharge.weightFrom ?? null) !== null ||
+                        (surcharge.weightTo ?? null) !== null ? (
+                          <span className="text-sm">
+                            {fp.canView('surcharge.weightFrom')
+                              ? (surcharge.weightFrom ?? 0)
+                              : '?'}
+                            kg
+                            {' - '}
+                            {fp.canView('surcharge.weightTo')
+                              ? (surcharge.weightTo ?? '∞')
+                              : '?'}
+                            kg
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">全部重量</span>
                         )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {surcharge.weightFrom !== null || surcharge.weightTo !== null ? (
-                        <span className="text-sm">
-                          {surcharge.weightFrom !== null ? surcharge.weightFrom : '0'}kg
-                          {' - '}
-                          {surcharge.weightTo !== null ? surcharge.weightTo : '∞'}kg
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">全部重量</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="font-medium text-red-500">
-                      +¥{parseFloat(surcharge.amount.toString()).toFixed(3)}
-                    </TableCell>
+                      </TableCell>
+                    )}
+                    {fp.canView('surcharge.amount') && (
+                      <TableCell className="font-medium text-red-500">
+                        {surcharge.amount != null
+                          ? `+¥${parseFloat(surcharge.amount.toString()).toFixed(3)}`
+                          : '-'}
+                      </TableCell>
+                    )}
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleEdit(surcharge)}
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
+                      {canEditAny && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEdit(surcharge)}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -261,74 +322,91 @@ export function SurchargePanel({ companyId }: SurchargePanelProps) {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>规则名称</Label>
-              <Input
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="如：北京上海加收"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+            {fp.canView('surcharge.name') && (
               <div className="space-y-2">
-                <Label>起始重量 (kg)</Label>
+                <Label>规则名称</Label>
                 <Input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  value={formData.weightFrom}
-                  onChange={(e) => setFormData({ ...formData, weightFrom: e.target.value })}
-                  placeholder="不填表示无限制"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="如：北京上海加收"
+                  disabled={!fp.canEdit('surcharge.name')}
                 />
               </div>
+            )}
+
+            {(fp.canView('surcharge.weightFrom') || fp.canView('surcharge.weightTo')) && (
+              <div className="grid grid-cols-2 gap-4">
+                {fp.canView('surcharge.weightFrom') && (
+                  <div className="space-y-2">
+                    <Label>起始重量 (kg)</Label>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={formData.weightFrom}
+                      onChange={(e) => setFormData({ ...formData, weightFrom: e.target.value })}
+                      placeholder="不填表示无限制"
+                      disabled={!fp.canEdit('surcharge.weightFrom')}
+                    />
+                  </div>
+                )}
+                {fp.canView('surcharge.weightTo') && (
+                  <div className="space-y-2">
+                    <Label>结束重量 (kg)</Label>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={formData.weightTo}
+                      onChange={(e) => setFormData({ ...formData, weightTo: e.target.value })}
+                      placeholder="不填表示无限制"
+                      disabled={!fp.canEdit('surcharge.weightTo')}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {fp.canView('surcharge.amount') && (
               <div className="space-y-2">
-                <Label>结束重量 (kg)</Label>
+                <Label>加收金额 (元)</Label>
                 <Input
                   type="number"
-                  step="0.1"
-                  min="0"
-                  value={formData.weightTo}
-                  onChange={(e) => setFormData({ ...formData, weightTo: e.target.value })}
-                  placeholder="不填表示无限制"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>加收金额 (元)</Label>
-              <Input
-                type="number"
                   step="0.001"
-                min="0"
-                value={formData.amount}
-                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                  min="0"
+                  value={formData.amount}
+                  onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                   placeholder="0.000"
-              />
-            </div>
+                  disabled={!fp.canEdit('surcharge.amount')}
+                />
+              </div>
+            )}
 
-            <div className="space-y-2">
-              <Label>适用省份 ({formData.provinces.length} 个)</Label>
-              <ScrollArea className="h-[200px] border rounded-md p-4">
-                <div className="grid grid-cols-4 gap-3">
-                  {ALL_PROVINCES.map((province) => (
-                    <div key={province} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`surcharge-province-${province}`}
-                        checked={formData.provinces.includes(province)}
-                        onCheckedChange={() => handleToggleProvince(province)}
-                      />
-                      <label
-                        htmlFor={`surcharge-province-${province}`}
-                        className="text-sm cursor-pointer"
-                      >
-                        {province}
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            </div>
+            {fp.canView('surcharge.provinces') && (
+              <div className="space-y-2">
+                <Label>适用省份 ({formData.provinces.length} 个)</Label>
+                <ScrollArea className="h-[200px] border rounded-md p-4">
+                  <div className="grid grid-cols-4 gap-3">
+                    {ALL_PROVINCES.map((province) => (
+                      <div key={province} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`surcharge-province-${province}`}
+                          checked={formData.provinces.includes(province)}
+                          onCheckedChange={() => handleToggleProvince(province)}
+                          disabled={!fp.canEdit('surcharge.provinces')}
+                        />
+                        <label
+                          htmlFor={`surcharge-province-${province}`}
+                          className={`text-sm ${fp.canEdit('surcharge.provinces') ? 'cursor-pointer' : 'cursor-not-allowed text-muted-foreground/50'}`}
+                        >
+                          {province}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>

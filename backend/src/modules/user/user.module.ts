@@ -4,9 +4,10 @@ import { UserResolver } from './user.resolver';
 import { UserController } from './user.controller';
 import { AuthModule } from '../auth/auth.module';
 import { FileModule } from '../file/file.module';
+import { RoleModule } from '../role/role.module';
 
 @Module({
-  imports: [AuthModule, forwardRef(() => FileModule)],
+  imports: [AuthModule, forwardRef(() => FileModule), RoleModule],
   providers: [UserService, UserResolver],
   controllers: [UserController],
   exports: [UserService],

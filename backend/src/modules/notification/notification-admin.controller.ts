@@ -1,7 +1,7 @@
 import {
     Controller, Get, Post, Patch, Delete, Put,
     Body, Param, Query, UseGuards,
-    HttpCode, HttpStatus,
+    HttpCode, HttpStatus, ForbiddenException,
 } from '@nestjs/common';
 import {
     ApiTags, ApiOperation, ApiBearerAuth,
@@ -32,6 +32,29 @@ import { CreateBroadcastDto } from './dto/broadcast.dto';
 import {
     MaintenanceDto, UpdateConfigDto,
 } from './dto/batch-operation.dto';
+import {
+    FieldKeyMapping,
+    FieldPermissionService,
+    FieldPermissionState,
+} from '../role/field-permission.service';
+
+/**
+ * 通知字段映射：用于「信息权限」的读取脱敏与写入过滤
+ * 范围：只作用于**通知管理端**（广播列表/详情、全员通知记录）。
+ *      用户自己的通知（/notifications）属于个人数据，按既有原则不做字段脱敏。
+ * 说明：广播与通知记录都有 title/content，统一按同一字段控制（避免同名 key 冲突）。
+ */
+const NOTIFICATION_FIELD_MAP: FieldKeyMapping[] = [
+    { field: 'broadcastNo', key: 'broadcastNo' },
+    { field: 'title', key: 'title' },
+    { field: 'content', key: 'content' },
+    { field: 'targetType', key: 'targetType' },
+    { field: 'status', key: 'status' },
+    { field: 'targetCount', key: 'targetCount' },
+    { field: 'sentCount', key: 'sentCount' },
+    { field: 'readCount', key: 'readCount' },
+    { field: 'userId', key: 'userId' },
+];
 
 @ApiTags('通知管理')
 @ApiBearerAuth()
@@ -43,7 +66,27 @@ export class NotificationAdminController {
             NotificationService,
         private readonly broadcastService:
             BroadcastService,
+        private readonly fieldPermissionService:
+            FieldPermissionService,
     ) {}
+
+    /** 当前用户在本模块的字段权限 */
+    private resolveFields(user: UserPayload) {
+        return this.fieldPermissionService.resolve(
+            user.sub,
+            'notification',
+            user.roles ?? [],
+        );
+    }
+
+    /** 递归脱敏（对象/数组/分页对象都兼容） */
+    private stripDeep(node: any, state: FieldPermissionState): any {
+      return this.fieldPermissionService.stripHiddenFieldsDeep(
+        node,
+        NOTIFICATION_FIELD_MAP,
+        state,
+      );
+    }
 
     // ========== 广播管理 ==========
 
@@ -52,10 +95,13 @@ export class NotificationAdminController {
     @ApiOperation({ summary: '获取广播列表' })
     async getBroadcasts(
         @Query() query: QueryBroadcastDto,
+        @CurrentUser() user: UserPayload,
     ) {
-        return this.broadcastService.getBroadcasts(
+        const data = await this.broadcastService.getBroadcasts(
             query,
         );
+        const state = await this.resolveFields(user);
+        return this.stripDeep(data, state);
     }
 
     @Get('broadcasts/:id')
@@ -63,10 +109,13 @@ export class NotificationAdminController {
     @ApiOperation({ summary: '获取广播详情' })
     async getBroadcastDetail(
         @Param('id') id: string,
+        @CurrentUser() user: UserPayload,
     ) {
-        return this.broadcastService.getBroadcastById(
+        const data = await this.broadcastService.getBroadcastById(
             id,
         );
+        const state = await this.resolveFields(user);
+        return this.stripDeep(data, state);
     }
 
     @Post('broadcasts')
@@ -77,8 +126,17 @@ export class NotificationAdminController {
         @CurrentUser() user: UserPayload,
         @Body() dto: CreateBroadcastDto,
     ) {
+        const state = await this.resolveFields(user);
+        const safe = this.fieldPermissionService.stripUneditableFields(
+            dto as any,
+            NOTIFICATION_FIELD_MAP,
+            state,
+        );
+        if (!safe.title) {
+            throw new ForbiddenException('没有「通知标题」的编辑权限');
+        }
         return this.broadcastService.createBroadcast(
-            dto, user.sub,
+            safe as CreateBroadcastDto, user.sub,
         );
     }
 
@@ -111,10 +169,13 @@ export class NotificationAdminController {
     @ApiOperation({ summary: '获取通知记录' })
     async getRecords(
         @Query() query: QueryAdminNotificationDto,
+        @CurrentUser() user: UserPayload,
     ) {
-        return this.service.getAdminNotifications(
+        const data = await this.service.getAdminNotifications(
             query,
         );
+        const state = await this.resolveFields(user);
+        return this.stripDeep(data, state);
     }
 
     // ========== 系统维护 ==========

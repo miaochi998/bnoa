@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { DictSelect } from '@/components/shared/DictSelect';
 import { apiClient } from '@/lib/api';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface Consumable {
     id: string;
@@ -28,6 +29,7 @@ export function ConsumableForm({
     onSuccess,
     onCancel,
 }: ConsumableFormProps) {
+    const fp = useFieldPermissions('consumable');
     const [formData, setFormData] = useState({
         name: consumable?.name || '',
         category: consumable?.category || '',
@@ -39,12 +41,29 @@ export function ConsumableForm({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formData.name.trim()) {
+        if (!consumable && (!fp.canEdit('name') || !fp.canEdit('category'))) {
+            alert('没有创建耗材所需的字段编辑权限（名称/分类）');
+            return;
+        }
+        if (fp.canEdit('name') && !formData.name.trim()) {
             alert('请输入耗材名称');
             return;
         }
-        if (!formData.category) {
+        if (fp.canEdit('category') && !formData.category) {
             alert('请选择耗材分类');
+            return;
+        }
+
+        // 只提交「可编辑」字段
+        const payload: Record<string, any> = {};
+        if (fp.canEdit('name')) payload.name = formData.name;
+        if (fp.canEdit('category')) payload.category = formData.category;
+        if (fp.canEdit('specDesc')) payload.specDesc = formData.specDesc;
+        if (fp.canEdit('remark')) payload.remark = formData.remark;
+        if (consumable && fp.canEdit('status')) payload.status = formData.status;
+
+        if (Object.keys(payload).length === 0) {
+            alert('你没有耗材字段的编辑权限');
             return;
         }
 
@@ -52,12 +71,11 @@ export function ConsumableForm({
         try {
             if (consumable) {
                 await apiClient.updateConsumable(
-                    consumable.id, formData,
+                    consumable.id, payload,
                 );
                 alert('更新成功');
             } else {
-                const { status, ...createData } = formData;
-                await apiClient.createConsumable(createData);
+                await apiClient.createConsumable(payload);
                 alert('创建成功');
             }
             onSuccess();
@@ -73,11 +91,11 @@ export function ConsumableForm({
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
-            {consumable && (
+            {consumable && fp.canView('code') && (
                 <div className="space-y-2">
                     <Label className="text-white">耗材编码</Label>
                     <Input
-                        value={consumable.code}
+                        value={consumable.code ?? ''}
                         disabled
                         className="bg-[#1e1e1e] border-[#1e1e1e] text-[#8e8e8e]"
                     />
@@ -87,6 +105,7 @@ export function ConsumableForm({
                 </div>
             )}
 
+            {fp.canView('name') && (
             <div className="space-y-2">
                 <Label className="text-white">
                     耗材名称 <span className="text-red-400">*</span>
@@ -97,10 +116,13 @@ export function ConsumableForm({
                     onChange={(e) =>
                         setFormData({ ...formData, name: e.target.value })
                     }
-                    className="bg-[#1e1e1e] border-[#1e1e1e] text-white placeholder:text-[#8e8e8e]"
+                    disabled={!fp.canEdit('name')}
+                    className="bg-[#1e1e1e] border-[#1e1e1e] text-white placeholder:text-[#8e8e8e] disabled:opacity-50"
                 />
             </div>
+            )}
 
+            {fp.canView('category') && (
             <div className="space-y-2">
                 <Label className="text-white">
                     耗材分类 <span className="text-red-400">*</span>
@@ -112,10 +134,13 @@ export function ConsumableForm({
                         setFormData({ ...formData, category: v })
                     }
                     placeholder="请选择分类"
+                    disabled={!fp.canEdit('category')}
                     className="bg-[#1e1e1e] border-[#1e1e1e] text-white"
                 />
             </div>
+            )}
 
+            {fp.canView('specDesc') && (
             <div className="space-y-2">
                 <Label className="text-white">规格描述</Label>
                 <Input
@@ -124,11 +149,13 @@ export function ConsumableForm({
                     onChange={(e) =>
                         setFormData({ ...formData, specDesc: e.target.value })
                     }
-                    className="bg-[#1e1e1e] border-[#1e1e1e] text-white placeholder:text-[#8e8e8e]"
+                    disabled={!fp.canEdit('specDesc')}
+                    className="bg-[#1e1e1e] border-[#1e1e1e] text-white placeholder:text-[#8e8e8e] disabled:opacity-50"
                 />
             </div>
+            )}
 
-            {consumable && (
+            {consumable && fp.canView('status') && (
                 <div className="space-y-2">
                     <Label className="text-white">状态</Label>
                     <DictSelect
@@ -138,11 +165,13 @@ export function ConsumableForm({
                             setFormData({ ...formData, status: v })
                         }
                         placeholder="选择状态"
+                        disabled={!fp.canEdit('status')}
                         className="bg-[#1e1e1e] border-[#1e1e1e] text-white"
                     />
                 </div>
             )}
 
+            {fp.canView('remark') && (
             <div className="space-y-2">
                 <Label className="text-white">备注</Label>
                 <Input
@@ -151,9 +180,11 @@ export function ConsumableForm({
                     onChange={(e) =>
                         setFormData({ ...formData, remark: e.target.value })
                     }
-                    className="bg-[#1e1e1e] border-[#1e1e1e] text-white placeholder:text-[#8e8e8e]"
+                    disabled={!fp.canEdit('remark')}
+                    className="bg-[#1e1e1e] border-[#1e1e1e] text-white placeholder:text-[#8e8e8e] disabled:opacity-50"
                 />
             </div>
+            )}
 
             <div className="flex justify-end gap-3 pt-4">
                 <Button

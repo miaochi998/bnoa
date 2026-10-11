@@ -152,7 +152,7 @@ async function main() {
     { key: 'email.smtpHost', value: '', category: 'email', type: 'STRING', description: 'SMTP服务器地址', isSystem: true },
     { key: 'email.smtpPort', value: '587', category: 'email', type: 'NUMBER', description: 'SMTP端口', isSystem: true },
     { key: 'email.smtpUser', value: '', category: 'email', type: 'STRING', description: 'SMTP用户名', isSystem: true },
-    { key: 'email.smtpPassword', value: '', category: 'email', type: 'STRING', description: 'SMTP密码', isSystem: true },
+    { key: 'email.smtpPass', value: '', category: 'email', type: 'STRING', description: 'SMTP密码', isSystem: true },
     { key: 'email.senderName', value: 'BNOA系统', category: 'email', type: 'STRING', description: '发件人名称', isSystem: true },
     { key: 'email.senderEmail', value: '', category: 'email', type: 'STRING', description: '发件人邮箱', isSystem: true },
     { key: 'email.enabled', value: 'false', category: 'email', type: 'BOOLEAN', description: '启用邮件功能', isSystem: true },

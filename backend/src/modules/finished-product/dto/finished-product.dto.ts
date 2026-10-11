@@ -37,6 +37,17 @@ export class LaborItemDto {
     @ApiProperty({ description: '工种ID' })
     @IsUUID()
     laborTypeId: string;
+
+    @ApiPropertyOptional({
+        description: '该工种需要做的次数（默认 1）',
+        default: 1,
+        minimum: 1,
+    })
+    @Type(() => Number)
+    @IsInt()
+    @Min(1)
+    @IsOptional()
+    quantity?: number;
 }
 
 // ==================== 查询 DTO ====================

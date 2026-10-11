@@ -33,6 +33,24 @@ import {
     CleanupLogsDto,
 } from './dto/email.dto';
 import { EmailCategory } from './interfaces/email.interfaces';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { UserPayload } from '../../common/decorators/current-user.decorator';
+import {
+    FieldKeyMapping,
+    FieldPermissionService,
+} from '../role/field-permission.service';
+
+/** 邮件字段映射：用于「信息权限」读取脱敏（邮件日志不可编辑） */
+const EMAIL_FIELD_MAP: FieldKeyMapping[] = [
+    { field: 'to', key: 'to' },
+    { field: 'subject', key: 'subject' },
+    { field: 'template', key: 'template' },
+    { field: 'status', key: 'status' },
+    { field: 'errorMessage', key: 'errorMessage' },
+    { field: 'category', key: 'category' },
+    { field: 'retryCount', key: 'retryCount' },
+    { field: 'sentAt', key: 'sentAt' },
+];
 
 /** 模板元数据（可用变量定义） */
 const TEMPLATE_META: Record<string, {
@@ -110,35 +128,64 @@ export class EmailController {
         private readonly templateService: EmailTemplateService,
         private readonly prisma: PrismaService,
         private readonly configService: ConfigService,
+        private readonly fieldPermissionService: FieldPermissionService,
     ) {}
+
+    /** 当前用户在本模块的字段权限 */
+    private resolveFields(user: UserPayload) {
+        return this.fieldPermissionService.resolve(
+            user.sub,
+            'email',
+            user.roles ?? [],
+        );
+    }
+
+    /** 递归脱敏 */
+    private stripEmailDeep(node: any, state: any): any {
+      return this.fieldPermissionService.stripHiddenFieldsDeep(
+        node,
+        EMAIL_FIELD_MAP,
+        state,
+      );
+    }
 
     // ==================== 日志接口 ====================
 
     @Get('logs')
-    @Permissions('email:log')
+    @Permissions('email:manage')
     @ApiOperation({ summary: '查询邮件日志列表' })
-    async getLogs(@Query() query: QueryEmailLogDto) {
-        return this.emailService.queryLogs(query);
+    async getLogs(
+        @Query() query: QueryEmailLogDto,
+        @CurrentUser() user: UserPayload,
+    ) {
+        const result = await this.emailService.queryLogs(query);
+        const state = await this.resolveFields(user);
+        return this.stripEmailDeep(result, state);
     }
 
     @Get('logs/stats')
-    @Permissions('email:log')
+    @Permissions('email:manage')
     @ApiOperation({ summary: '获取日志统计' })
     async getLogStats() {
         return this.emailService.getLogStats();
     }
 
     @Get('logs/:id')
-    @Permissions('email:log')
+    @Permissions('email:manage')
     @ApiOperation({ summary: '查询单条日志详情' })
-    async getLogDetail(@Param('id') id: string) {
+    async getLogDetail(
+        @Param('id') id: string,
+        @CurrentUser() user: UserPayload,
+    ) {
         const log = await this.prisma.emailLog.findUnique({
             where: { id },
         });
         if (!log) {
             throw new NotFoundException('日志记录不存在');
         }
-        return log;
+        // 详情与列表口径一致（原先详情未脱敏）
+        const state = await this.resolveFields(user);
+        return this.stripEmailDeep(log, state);
     }
 
     @Post('logs/:id/resend')
@@ -164,7 +211,7 @@ export class EmailController {
     // ==================== 配置接口 ====================
 
     @Get('config')
-    @Permissions('email:config')
+    @Permissions('email:manage')
     @ApiOperation({ summary: '获取邮件配置' })
     async getConfig() {
         const configs = await this.prisma.config.findMany({
@@ -324,7 +371,7 @@ export class EmailController {
     // ==================== 模板接口 ====================
 
     @Get('templates')
-    @Permissions('email:template')
+    @Permissions('email:manage')
     @ApiOperation({ summary: '获取模板列表' })
     async getTemplates() {
         const names = this.templateService.getTemplateNames();
@@ -337,7 +384,7 @@ export class EmailController {
     }
 
     @Get('templates/:name')
-    @Permissions('email:template')
+    @Permissions('email:manage')
     @ApiOperation({ summary: '获取单个模板详情' })
     async getTemplate(@Param('name') name: string) {
         const source =

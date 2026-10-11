@@ -62,12 +62,14 @@ import {
   Download,
 } from 'lucide-react';
 import { PermissionGate } from '@/components/PermissionGate';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import { DictTag } from '@/components/shared/DictTag';
 import { DictSelect } from '@/components/shared/DictSelect';
 
 type SortOption = 'default' | 'createdAt_desc' | 'createdAt_asc' | 'lastLoginAt_desc' | 'lastLoginAt_asc';
 
 export default function UsersPage() {
+  const fp = useFieldPermissions('user');
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,8 +87,6 @@ export default function UsersPage() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
-  const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
-  const [userToResetPassword, setUserToResetPassword] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState('abc123456');
   const [showPassword, setShowPassword] = useState(false);
 
@@ -202,18 +202,6 @@ export default function UsersPage() {
       fetchUsers();
     } catch (error) {
       console.error('Failed to delete user:', error);
-    }
-  };
-
-  const handleResetPassword = async () => {
-    if (!userToResetPassword || !newPassword) return;
-    try {
-      await apiClient.resetUserPassword(userToResetPassword.id, newPassword);
-      setResetPasswordDialogOpen(false);
-      setUserToResetPassword(null);
-      setNewPassword('');
-    } catch (error) {
-      console.error('Failed to reset password:', error);
     }
   };
 
@@ -378,16 +366,32 @@ export default function UsersPage() {
                     aria-label="全选"
                   />
                 </TableHead>
-                <TableHead className="text-muted-foreground w-16">头像</TableHead>
-                <TableHead className="text-muted-foreground">用户名</TableHead>
-                <TableHead className="text-muted-foreground">邮箱</TableHead>
-                <TableHead className="text-muted-foreground">姓名</TableHead>
-                <TableHead className="text-muted-foreground">手机</TableHead>
-                <TableHead className="text-muted-foreground">角色</TableHead>
-                <TableHead className="text-muted-foreground">状态</TableHead>
+                {fp.canView('avatar') && (
+                  <TableHead className="text-muted-foreground w-16">头像</TableHead>
+                )}
+                {fp.canView('username') && (
+                  <TableHead className="text-muted-foreground">用户名</TableHead>
+                )}
+                {fp.canView('email') && (
+                  <TableHead className="text-muted-foreground">邮箱</TableHead>
+                )}
+                {fp.canView('name') && (
+                  <TableHead className="text-muted-foreground">姓名</TableHead>
+                )}
+                {fp.canView('phone') && (
+                  <TableHead className="text-muted-foreground">手机</TableHead>
+                )}
+                {fp.canView('roles') && (
+                  <TableHead className="text-muted-foreground">角色</TableHead>
+                )}
+                {fp.canView('status') && (
+                  <TableHead className="text-muted-foreground">状态</TableHead>
+                )}
                 <TableHead className="text-muted-foreground w-20">启用</TableHead>
                 <TableHead className="text-muted-foreground">注册时间</TableHead>
-                <TableHead className="text-muted-foreground">最后登录</TableHead>
+                {fp.canView('lastLoginAt') && (
+                  <TableHead className="text-muted-foreground">最后登录</TableHead>
+                )}
                 <TableHead className="text-muted-foreground text-right w-20">操作</TableHead>
               </TableRow>
             </TableHeader>
@@ -414,6 +418,7 @@ export default function UsersPage() {
                         aria-label={`选择 ${user.username}`}
                       />
                     </TableCell>
+                    {fp.canView('avatar') && (
                     <TableCell>
                       <Avatar className="h-8 w-8">
                         <AvatarImage src={getAvatarUrl(user.id, user.avatar) || getDefaultAvatarUrl()} alt={user.name} />
@@ -422,39 +427,53 @@ export default function UsersPage() {
                         </AvatarFallback>
                       </Avatar>
                     </TableCell>
+                    )}
+                    {fp.canView('username') && (
                     <TableCell className="font-medium text-foreground">
-                      {user.username}
+                      {user.username ?? ''}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{user.email}</TableCell>
+                    )}
+                    {fp.canView('email') && (
+                    <TableCell className="text-muted-foreground">{user.email ?? '-'}</TableCell>
+                    )}
+                    {fp.canView('name') && (
                     <TableCell className="text-foreground">{user.name || '-'}</TableCell>
+                    )}
+                    {fp.canView('phone') && (
                     <TableCell className="text-muted-foreground">{user.phone || '-'}</TableCell>
+                    )}
+                    {fp.canView('roles') && (
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        {user.roles.length > 0 ? user.roles.map((role, index) => (
+                        {(user.roles || []).length > 0 ? (user.roles || []).map((role, index) => (
                           <Badge key={index} variant="secondary" className="text-xs">
                             {role}
                           </Badge>
                         )) : <span className="text-muted-foreground">-</span>}
                       </div>
                     </TableCell>
+                    )}
+                    {fp.canView('status') && (
                     <TableCell>
                       <DictTag typeCode="user_status" value={user.status} />
                     </TableCell>
+                    )}
                     <TableCell>
-                      <PermissionGate permission={user.status === UserStatus.ACTIVE ? "user:suspend" : "user:activate"}>
+                      <PermissionGate permission="user:suspend">
                         <Switch
                           checked={user.status === UserStatus.ACTIVE}
                           onCheckedChange={() => handleToggleStatus(user)}
-                          disabled={user.status === UserStatus.DELETED}
                         />
                       </PermissionGate>
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {formatDate(user.createdAt)}
                     </TableCell>
+                    {fp.canView('lastLoginAt') && (
                     <TableCell className="text-muted-foreground text-sm">
                       {formatDate(user.lastLoginAt)}
                     </TableCell>
+                    )}
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -482,20 +501,8 @@ export default function UsersPage() {
                               编辑
                             </DropdownMenuItem>
                           </PermissionGate>
-                          <PermissionGate permission="user:reset-password">
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setUserToResetPassword(user);
-                                setResetPasswordDialogOpen(true);
-                              }}
-                              className="cursor-pointer"
-                            >
-                              <Key className="mr-2 h-4 w-4" />
-                              重置密码
-                            </DropdownMenuItem>
-                          </PermissionGate>
                           <DropdownMenuSeparator />
-                          <PermissionGate permission={user.status === UserStatus.ACTIVE ? "user:suspend" : "user:activate"}>
+                          <PermissionGate permission="user:suspend">
                             <DropdownMenuItem
                               onClick={() => handleToggleStatus(user)}
                               className="cursor-pointer"
@@ -580,51 +587,6 @@ export default function UsersPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Reset Password Dialog */}
-      <AlertDialog open={resetPasswordDialogOpen} onOpenChange={(open) => {
-        setResetPasswordDialogOpen(open);
-        if (!open) {
-          setNewPassword('abc123456');
-          setShowPassword(false);
-        }
-      }}>
-        <AlertDialogContent className="bg-card border-border">
-          <AlertDialogHeader>
-            <AlertDialogTitle>重置密码</AlertDialogTitle>
-            <AlertDialogDescription>
-              为用户 "{userToResetPassword?.username}" 设置新密码（默认密码：abc123456）
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="py-4">
-            <div className="relative">
-              <Input
-                type={showPassword ? 'text' : 'password'}
-                placeholder="请输入新密码"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="bg-background border-input pr-10"
-                autoComplete="new-password"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => {
-              setNewPassword('abc123456');
-              setShowPassword(false);
-            }}>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={handleResetPassword} disabled={!newPassword}>
-              确认重置
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { getApiBaseUrl } from '@/lib/config';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
@@ -31,6 +32,7 @@ async function apiFetch(endpoint: string, opts?: RequestInit) {
 }
 
 export default function NotificationsSettingsPage() {
+    const fp = useFieldPermissions('notification');
     const [broadcasts, setBroadcasts] = useState<any[]>([]);
     const [records, setRecords] = useState<any[]>([]);
     const [stats, setStats] = useState<any>(null);
@@ -138,17 +140,21 @@ export default function NotificationsSettingsPage() {
                                         </tr>
                                     ) : broadcasts.map((b) => (
                                         <tr key={b.id} className="border-b border-border hover:bg-card-hover">
-                                            <td className="px-4 py-3 text-xs text-muted-foreground font-mono">{b.broadcastNo}</td>
+                                            <td className="px-4 py-3 text-xs text-muted-foreground font-mono">{fp.canView('broadcastNo') ? b.broadcastNo : '******'}</td>
                                             <td className="px-4 py-3">
                                                 <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
                                                     {getNotificationTypeName(b.type)}
                                                 </span>
                                             </td>
-                                            <td className="px-4 py-3 text-foreground max-w-[200px] truncate">{b.title}</td>
+                                            <td className="px-4 py-3 text-foreground max-w-[200px] truncate">{fp.canView('title') ? b.title : '******'}</td>
                                             <td className="px-4 py-3 text-muted-foreground">{targetLabels[b.targetType] || b.targetType}</td>
                                             <td className="px-4 py-3 text-muted-foreground">
-                                                {b.sentCount}/{b.readCount}
-                                                <span className="text-xs ml-1">({b.readRate}%)</span>
+                                                {fp.canView('sentCount') && fp.canView('readCount') ? (
+                                                    <>
+                                                        {b.sentCount}/{b.readCount}
+                                                        <span className="text-xs ml-1">({b.readRate}%)</span>
+                                                    </>
+                                                ) : '******'}
                                             </td>
                                             <td className="px-4 py-3">
                                                 <span className={`text-xs px-2 py-0.5 rounded ${statusColors[b.status] || ''}`}>
@@ -234,7 +240,7 @@ export default function NotificationsSettingsPage() {
                                                     </span>
                                                 )}
                                             </td>
-                                            <td className="px-4 py-3 text-foreground max-w-[250px] truncate">{r.title}</td>
+                                            <td className="px-4 py-3 text-foreground max-w-[250px] truncate">{fp.canView('title') ? r.title : '******'}</td>
                                             <td className="px-4 py-3">
                                                 <span className={`text-xs px-2 py-0.5 rounded ${r.isRead ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'}`}>
                                                     {r.isRead ? '已读' : '未读'}

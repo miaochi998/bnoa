@@ -37,6 +37,7 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { apiClient } from '@/lib/api';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import {
     Link2,
     Plus,
@@ -113,6 +114,7 @@ interface Sku {
 }
 
 export default function ProductLinkPage() {
+    const fp = useFieldPermissions('product-link');
     const [links, setLinks] = useState<ProductLink[]>(
         [],
     );
@@ -338,6 +340,7 @@ export default function ProductLinkPage() {
                                 className="pl-9"
                             />
                         </div>
+                        {fp.canView('shopId') && (
                         <Select
                             value={shopFilter}
                             onValueChange={
@@ -364,6 +367,8 @@ export default function ProductLinkPage() {
                                 ))}
                             </SelectContent>
                         </Select>
+                        )}
+                        {fp.canView('status') && (
                         <DictSelect
                             typeCode="product_link_status"
                             value={statusFilter}
@@ -373,6 +378,7 @@ export default function ProductLinkPage() {
                             allValue="all"
                             className="w-[140px]"
                         />
+                        )}
                     </div>
 
                     {/* 链接列表：与 SKU 列表相同的分组 + 表格结构 */}
@@ -421,8 +427,10 @@ export default function ProductLinkPage() {
                                                     <span className="w-4 h-4 inline-block" />
                                                 )}
                                             </button>
-                                            <span className="font-medium truncate">{link.name}</span>
-                                            {link.platformUrl && (
+                                            <span className="font-medium truncate">
+                                                {fp.canView('name') ? (link.name ?? '') : '******'}
+                                            </span>
+                                            {fp.canView('platformUrl') && link.platformUrl && (
                                                 <a
                                                     href={link.platformUrl}
                                                     target="_blank"
@@ -433,11 +441,13 @@ export default function ProductLinkPage() {
                                                     <ExternalLink className="w-3.5 h-3.5" />
                                                 </a>
                                             )}
+                                            {fp.canView('shopId') && (
                                             <span className="text-sm text-muted-foreground shrink-0">
                                                 {link.shop?.platform?.name && link.shop?.name
                                                     ? `${link.shop.platform.name} - ${link.shop.name}`
                                                     : '-'}
                                             </span>
+                                            )}
                                         </div>
                                         <div className="flex items-center gap-4 shrink-0">
                                             {link.skuStats && (
@@ -451,7 +461,9 @@ export default function ProductLinkPage() {
                                                     )}
                                                 </span>
                                             )}
-                                            <DictTag typeCode="product_link_status" value={link.status} />
+                                            {fp.canView('status') && (
+                                                <DictTag typeCode="product_link_status" value={link.status} />
+                                            )}
                                             <span className="text-sm text-muted-foreground">{formatDate(link.createdAt)}</span>
                                             <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                                                 <PermissionGate permission="product-link:update">

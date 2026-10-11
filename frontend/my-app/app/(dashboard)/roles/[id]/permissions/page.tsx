@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { useRouter, useParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,12 +12,18 @@ import { Role } from '@/types/role';
 import { Permission, PermissionTreeNode, PermissionType } from '@/types/permission';
 import { DictTag } from '@/components/shared/DictTag';
 import {
+  FieldPermissionEditor,
+  FieldPermissionEditorHandle,
+} from '@/components/roles/FieldPermissionEditor';
+import {
   ArrowLeft,
+  RefreshCw,
   Save,
   Shield,
   CheckSquare,
   ChevronRight,
   ChevronDown,
+  Eye,
 } from 'lucide-react';
 
 interface TreeNodeProps {
@@ -124,6 +131,9 @@ export default function RolePermissionsPage() {
   const [role, setRole] = useState<Role | null>(null);
   const [permissionTree, setPermissionTree] = useState<PermissionTreeNode[]>([]);
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<'function' | 'field'>('function');
+  const fieldEditorRef = useRef<FieldPermissionEditorHandle>(null);
+  const [fieldDirty, setFieldDirty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -193,6 +203,65 @@ export default function RolePermissionsPage() {
     }
   };
 
+  /** 立即刷新服务端权限缓存（兜底：正常情况下保存后会自动生效） */
+  const handleRefreshCache = async () => {
+    try {
+      const r = await apiClient.refreshPermissionCache();
+      toast.success(`权限缓存已刷新（清理 ${r.cleared} 条记录）`);
+    } catch (e: any) {
+      toast.error(e?.message || '刷新失败');
+    }
+  };
+
+  /** 统一保存入口：功能权限走本页逻辑，信息权限交给子组件 */
+  const handleSaveUnified = async () => {
+    if (activeTab === 'field') {
+      await fieldEditorRef.current?.save();
+    } else {
+      await handleSave();
+    }
+  };
+
+  /** 顶层节点下的全部后代（用于平铺展示） */
+  const flattenDescendants = (node: PermissionTreeNode): PermissionTreeNode[] => {
+    const out: PermissionTreeNode[] = [];
+    const walk = (n: PermissionTreeNode) => {
+      for (const c of n.children ?? []) {
+        out.push(c);
+        walk(c);
+      }
+    };
+    walk(node);
+    return out;
+  };
+
+  /** 整组勾选 / 取消 */
+  const handleSelectGroup = (nodes: PermissionTreeNode[], on: boolean) => {
+    const ids = nodes.map((n) => n.id);
+    setSelectedPermissions((prev) =>
+      on
+        ? Array.from(new Set([...prev, ...ids]))
+        : prev.filter((id) => !ids.includes(id)),
+    );
+  };
+
+  /** 该角色已开启的功能权限码（供信息权限判断前置功能） */
+  const selectedCodes = useMemo(() => {
+    const idToCode = new Map<string, string>();
+    const walk = (nodes: PermissionTreeNode[]) => {
+      for (const n of nodes) {
+        idToCode.set(n.id, n.code);
+        if (n.children?.length) walk(n.children);
+      }
+    };
+    walk(permissionTree);
+    return new Set(
+      selectedPermissions
+        .map((id) => idToCode.get(id))
+        .filter((c): c is string => !!c),
+    );
+  }, [permissionTree, selectedPermissions]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -239,7 +308,7 @@ export default function RolePermissionsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
+      {/* 顶部：标题 + 保存 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Button variant="outline" size="sm" onClick={() => router.push('/roles')}>
@@ -253,52 +322,81 @@ export default function RolePermissionsPage() {
             </p>
           </div>
         </div>
-        <Button onClick={handleSave} disabled={saving} className="bg-primary hover:bg-primary/90">
+      </div>
+
+      {/* 角色信息：一行展示 */}
+      <Card className="bg-card border-border">
+        <CardContent className="py-3">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <span className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-primary" />
+              <span className="text-foreground font-medium">{role.name}</span>
+            </span>
+            <code className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
+              {role.code}
+            </code>
+            <span className="text-sm text-muted-foreground">
+              {role.description || '无描述'}
+            </span>
+            <span className="ml-auto text-sm text-muted-foreground">
+              已选功能权限{' '}
+              <span className="text-primary font-semibold">{selectedPermissions.length}</span> 项
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 标签页 */}
+      <div className="flex items-center justify-between border-b border-border">
+        <div className="flex gap-1">
+        {[
+          { key: 'function' as const, label: '功能权限配置', icon: CheckSquare },
+          { key: 'field' as const, label: '信息权限配置', icon: Eye },
+        ].map((tab) => {
+          const TabIcon = tab.icon;
+          const active = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-2 px-4 py-2 text-sm rounded-t-md transition-colors duration-200 cursor-pointer border-b-2 -mb-px ${
+                active
+                  ? 'text-primary border-primary bg-primary/5'
+                  : 'text-muted-foreground border-transparent hover:text-foreground'
+              }`}
+            >
+              <TabIcon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          );
+        })}
+        </div>
+        <div className="flex items-center gap-2 mb-1">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefreshCache}
+          title="让权限变更立即对所有用户生效（正常情况下保存后已自动生效）"
+        >
+          <RefreshCw className="w-4 h-4 mr-2" />
+          刷新权限缓存
+        </Button>
+        <Button
+          onClick={handleSaveUnified}
+          disabled={saving || (activeTab === 'field' && !fieldDirty)}
+          className="bg-primary hover:bg-primary/90"
+        >
           <Save className="w-4 h-4 mr-2" />
           {saving ? '保存中...' : '保存配置'}
         </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Role Info Card */}
-        <Card className="bg-card border-border lg:col-span-1 h-fit">
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Shield className="w-5 h-5 text-primary" />
-              角色信息
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <p className="text-sm text-muted-foreground">角色名称</p>
-              <p className="text-foreground font-medium">{role.name}</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">角色编码</p>
-              <code className="text-sm text-muted-foreground bg-muted px-2 py-1 rounded">
-                {role.code}
-              </code>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">描述</p>
-              <p className="text-foreground">{role.description || '无'}</p>
-            </div>
-            <Separator className="bg-border" />
-            <div>
-              <p className="text-sm text-muted-foreground">已选权限</p>
-              <p className="text-2xl font-semibold text-primary">{selectedPermissions.length}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Permissions Tree Card */}
-        <Card className="bg-card border-border lg:col-span-2">
-          <CardHeader>
+      {activeTab === 'function' ? (
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <CheckSquare className="w-5 h-5 text-primary" />
-                权限列表
-              </CardTitle>
+              <CardTitle className="text-lg">能做什么（功能与操作）</CardTitle>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={handleSelectAll}>
                   全选
@@ -311,24 +409,105 @@ export default function RolePermissionsPage() {
           </CardHeader>
           <CardContent>
             {permissionTree.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                暂无权限数据
-              </div>
+              <div className="text-center py-8 text-muted-foreground">暂无权限数据</div>
             ) : (
-              <div className="border border-border rounded-md">
-                {permissionTree.map((node) => (
-                  <TreeNodeComponent
-                    key={node.id}
-                    node={node}
-                    selectedIds={selectedPermissions}
-                    onToggle={handlePermissionToggle}
-                  />
-                ))}
+              <div className="border border-border rounded-md divide-y divide-border">
+                {permissionTree.map((node, idx) => {
+                  const children = flattenDescendants(node);
+                  const all = [node, ...children];
+                  const selCount = all.filter((n) =>
+                    selectedPermissions.includes(n.id),
+                  ).length;
+                  const curCategory = (node as any).category as string | undefined;
+                  const prevCategory =
+                    idx > 0
+                      ? ((permissionTree[idx - 1] as any).category as string | undefined)
+                      : null;
+                  return (
+                    <div key={node.id}>
+                      {curCategory && curCategory !== prevCategory && (
+                        <div className="px-3 py-2 bg-muted/40 text-xs font-semibold text-muted-foreground">
+                          {(node as any).categoryLabel || curCategory}
+                        </div>
+                      )}
+                      <div className="px-3 py-3">
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          checked={selectedPermissions.includes(node.id)}
+                          onCheckedChange={() => handlePermissionToggle(node.id)}
+                        />
+                        <span className="text-foreground font-medium">{node.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {selCount}/{all.length}
+                        </span>
+                        <div className="ml-auto flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleSelectGroup(all, true)}
+                          >
+                            全选
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleSelectGroup(all, false)}
+                          >
+                            清空
+                          </Button>
+                        </div>
+                      </div>
+                      {children.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 pl-7">
+                          {children.map((c) => (
+                            <label
+                              key={c.id}
+                              className="flex items-center gap-2 cursor-pointer min-w-[150px]"
+                            >
+                              <Checkbox
+                                checked={selectedPermissions.includes(c.id)}
+                                onCheckedChange={() => handlePermissionToggle(c.id)}
+                              />
+                              <span className="text-sm text-muted-foreground">
+                                {c.name}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
+            <div className="flex justify-end pt-4">
+              <Button onClick={handleSave} disabled={saving} className="bg-primary hover:bg-primary/90">
+                <Save className="w-4 h-4 mr-2" />
+                {saving ? '保存中...' : '保存配置'}
+              </Button>
+            </div>
           </CardContent>
         </Card>
-      </div>
+      ) : (
+        <Card className="bg-card border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Eye className="w-5 h-5 text-primary" />
+              能看、能改哪些信息
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <FieldPermissionEditor
+              ref={fieldEditorRef}
+              roleId={roleId}
+              isSuperAdminRole={role.code === 'super_admin'}
+              selectedCodes={selectedCodes}
+              onDirtyChange={setFieldDirty}
+            />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

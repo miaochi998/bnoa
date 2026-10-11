@@ -28,8 +28,16 @@ interface CacheEntry {
 @Injectable()
 export class PermissionGuard implements CanActivate {
     private readonly logger = new Logger(PermissionGuard.name);
-    private readonly cache = new Map<string, CacheEntry>();
-    private readonly CACHE_TTL = 5 * 60 * 1000; // 5分钟
+    /**
+     * 权限缓存（静态：保证各模块解析出的多个实例共用同一份缓存，
+     * 也便于在「保存角色权限」后由任意位置立即清除）
+     */
+    private static readonly cache = new Map<string, CacheEntry>();
+    private static readonly CACHE_TTL = 5 * 60 * 1000; // 5分钟
+    private readonly CACHE_TTL = PermissionGuard.CACHE_TTL;
+    private get cache(): Map<string, CacheEntry> {
+        return PermissionGuard.cache;
+    }
 
     constructor(
         private reflector: Reflector,
@@ -110,8 +118,10 @@ export class PermissionGuard implements CanActivate {
         }
 
         // 查询数据库
+        // ⚠️ 只取「启用且未软删」的角色：否则把角色设为停用/软删后，
+        // 已分配该角色的用户会无限期保留其全部权限（权限无法回收）。
         const userRoles = await this.prisma.userRole.findMany({
-            where: { userId },
+            where: { userId, role: { isActive: true, deletedAt: null } },
             include: {
                 role: {
                     include: {
@@ -174,6 +184,26 @@ export class PermissionGuard implements CanActivate {
      * 清除所有缓存
      */
     clearAllCache(): void {
-        this.cache.clear();
+        PermissionGuard.cache.clear();
+    }
+
+    /**
+     * 静态清除所有缓存（供业务代码在改动角色/权限后立即调用，
+     * 避免「改完权限要等 5 分钟才生效」）
+     */
+    static clearAllCacheNow(): void {
+        PermissionGuard.cache.clear();
+    }
+
+    /**
+     * 静态清除指定用户的缓存
+     */
+    static clearUserCacheNow(userId: string): void {
+        PermissionGuard.cache.delete(userId);
+    }
+
+    /** 当前缓存条目数（用于诊断） */
+    static cacheSize(): number {
+        return PermissionGuard.cache.size;
     }
 }

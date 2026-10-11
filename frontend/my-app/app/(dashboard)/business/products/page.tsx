@@ -1,9 +1,7 @@
 'use client'
 
-import { getApiBaseUrl } from '@/lib/config';
-
 import { useState, useEffect, useCallback } from 'react';
-import { apiClient } from '@/lib/api';
+import { apiClient, getFilePreviewUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +13,7 @@ import { ProductImageConfigDialog } from '@/components/products/ProductImageConf
 import { DictTag } from '@/components/shared/DictTag';
 import { PermissionGate } from '@/components/PermissionGate';
 import { EditableCell } from '@/components/shared/EditableCell';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import {
     DndContext,
     closestCenter,
@@ -32,8 +31,6 @@ import {
     verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-
-const API_BASE_URL = getApiBaseUrl();
 
 interface Product {
     id: string;
@@ -99,6 +96,7 @@ function SortableRow({ id, children }: { id: string; children: React.ReactNode }
 
 
 export default function ProductsPage() {
+    const fp = useFieldPermissions('product');
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(false);
     const [searchKeyword, setSearchKeyword] = useState('');
@@ -229,6 +227,10 @@ export default function ProductsPage() {
 
     // 更新产品字段
     const handleUpdateField = async (id: string, field: 'name' | 'brand', newValue: string) => {
+        if (!fp.canEdit(field)) {
+            alert(`你没有「${field === 'name' ? '产品名称' : '品牌'}」的编辑权限`);
+            return;
+        }
         try {
             await apiClient.updateProduct(id, { [field]: newValue || null });
             // 更新本地列表
@@ -277,7 +279,7 @@ export default function ProductsPage() {
                 <div className="relative flex-1 min-w-[200px] max-w-[300px]">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8e8e8e]" />
                     <Input
-                        placeholder="搜索产品名称或编码..."
+                        placeholder={fp.canView('code') ? '搜索产品名称或编码...' : '搜索产品名称...'}
                         value={searchKeyword}
                         onChange={(e) => setSearchKeyword(e.target.value)}
                         className="pl-10 bg-[#2e2e2e] border-[#1e1e1e] text-white placeholder:text-[#8e8e8e]"
@@ -340,31 +342,40 @@ export default function ProductsPage() {
                                 <thead>
                                     <tr className="bg-[#262626]">
                                         <th className="px-2 py-3 text-left text-sm font-medium text-[#8e8e8e] w-10">拖拽</th>
-                                        <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">产品</th>
-                                        <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">编码</th>
-                                        <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">品牌</th>
-                                        <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">状态</th>
+                                        {(fp.canView('mainImage') || fp.canView('name') || fp.canView('pricingMode')) && (
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">产品</th>
+                                        )}
+                                        {fp.canView('code') && (
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">编码</th>
+                                        )}
+                                        {fp.canView('brand') && (
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">品牌</th>
+                                        )}
+                                        {fp.canView('status') && (
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">状态</th>
+                                        )}
                                         <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">操作</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {products.map((product) => (
                                         <SortableRow key={product.id} id={product.id}>
+                                            {(fp.canView('mainImage') || fp.canView('name') || fp.canView('pricingMode')) && (
                                             <td className="px-4 py-3">
                                                 <div className="flex items-center gap-3">
-                                                    {product.mainImage ? (
+                                                    {fp.canView('mainImage') && (product.mainImage ? (
                                                         <div
                                                             className="relative w-10 h-10 rounded bg-[#1e1e1e] flex items-center justify-center overflow-hidden cursor-pointer group"
                                                             title="查看大图"
                                                             onClick={() => {
-                                                                setPreviewImage(`${API_BASE_URL}/public/files/${product.mainImage}/preview`);
-                                                                setPreviewName(product.name);
+                                                                setPreviewImage(getFilePreviewUrl(product.mainImage!));
+                                                                setPreviewName(product.name ?? '');
                                                                 setPreviewOpen(true);
                                                             }}
                                                         >
                                                             <img
-                                                                src={`${API_BASE_URL}/public/files/${product.mainImage}/preview`}
-                                                                alt={product.name}
+                                                                src={getFilePreviewUrl(product.mainImage!)}
+                                                                alt={product.name ?? ''}
                                                                 className="w-full h-full object-cover rounded"
                                                             />
                                                             <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
@@ -375,14 +386,15 @@ export default function ProductsPage() {
                                                         <div className="w-10 h-10 rounded bg-[#1e1e1e] flex items-center justify-center overflow-hidden">
                                                             <Package className="w-5 h-5 text-[#8e8e8e]" />
                                                         </div>
-                                                    )}
+                                                    ))}
                                                     <div className="text-white font-medium">
+                                                        {fp.canView('name') ? (
                                                         <PermissionGate
                                                             permission="product:update"
                                                             fallback={
                                                                 <span>
-                                                                    {product.name}
-                                                                    {product.pricingMode !== 'UNIT' && (
+                                                                    {product.name ?? ''}
+                                                                    {fp.canView('pricingMode') && product.pricingMode !== 'UNIT' && (
                                                                         <span className="ml-2">
                                                                             <DictTag typeCode="pricing_mode" value={product.pricingMode} />
                                                                         </span>
@@ -396,37 +408,50 @@ export default function ProductsPage() {
                                                                     onSave={(newValue) => handleUpdateField(product.id, 'name', newValue)}
                                                                     placeholder="产品名称"
                                                                     maxLength={100}
+                                                                    disabled={!fp.canEdit('name')}
                                                                 />
-                                                                {product.pricingMode !== 'UNIT' && (
+                                                                {fp.canView('pricingMode') && product.pricingMode !== 'UNIT' && (
                                                                     <DictTag typeCode="pricing_mode" value={product.pricingMode} />
                                                                 )}
                                                             </div>
                                                         </PermissionGate>
+                                                        ) : (
+                                                            <span className="text-[#8e8e8e]">******</span>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td className="px-4 py-3 text-[#8e8e8e]">{product.code}</td>
-                                            <td className="px-4 py-3 text-[#8e8e8e]">
-                                                <PermissionGate
-                                                    permission="product:update"
-                                                    fallback={<span>{product.brand || '-'}</span>}
-                                                >
-                                                    <EditableCell
-                                                        value={product.brand}
-                                                        onSave={(newValue) => handleUpdateField(product.id, 'brand', newValue)}
-                                                        placeholder="品牌"
-                                                        maxLength={50}
-                                                    />
-                                                </PermissionGate>
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                <Badge className={`${statusMap[product.status].color} text-white`}>
-                                                    {statusMap[product.status].label}
-                                                </Badge>
-                                            </td>
+                                            )}
+                                            {fp.canView('code') && (
+                                                <td className="px-4 py-3 text-[#8e8e8e]">{product.code ?? ''}</td>
+                                            )}
+                                            {fp.canView('brand') && (
+                                                <td className="px-4 py-3 text-[#8e8e8e]">
+                                                    <PermissionGate
+                                                        permission="product:update"
+                                                        fallback={<span>{product.brand || '-'}</span>}
+                                                    >
+                                                        <EditableCell
+                                                            value={product.brand}
+                                                            onSave={(newValue) => handleUpdateField(product.id, 'brand', newValue)}
+                                                            placeholder="品牌"
+                                                            maxLength={50}
+                                                            disabled={!fp.canEdit('brand')}
+                                                        />
+                                                    </PermissionGate>
+                                                </td>
+                                            )}
+                                            {fp.canView('status') && (
+                                                <td className="px-4 py-3">
+                                                    <Badge className={`${statusMap[product.status]?.color || 'bg-gray-500'} text-white`}>
+                                                        {statusMap[product.status]?.label || product.status || '-'}
+                                                    </Badge>
+                                                </td>
+                                            )}
                                             <td className="px-4 py-3">
                                                 <div className="flex items-center gap-2">
                                                     <PermissionGate permission="product:update">
+                                                        {fp.canEdit('name') || fp.canEdit('brand') || fp.canEdit('pricingMode') || fp.canEdit('status') || fp.canEdit('mainImage') || fp.canEdit('remark') ? (
                                                         <button
                                                             onClick={() => handleEdit(product)}
                                                             className="p-1.5 rounded hover:bg-[#1e1e1e] text-[#8e8e8e] hover:text-white transition-colors"
@@ -434,6 +459,7 @@ export default function ProductsPage() {
                                                         >
                                                             <Edit className="w-4 h-4" />
                                                         </button>
+                                                        ) : null}
                                                     </PermissionGate>
                                                     <PermissionGate permission="product:delete">
                                                         <button

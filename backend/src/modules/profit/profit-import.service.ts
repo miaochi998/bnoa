@@ -3,9 +3,11 @@ import {
     Logger,
     BadRequestException,
     ConflictException,
+    NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { UserPayload } from '../../common/decorators/current-user.decorator';
+import { FieldPermissionService } from '../role/field-permission.service';
 import * as ExcelJS from 'exceljs';
 import { JsonImportProfitReportDto } from './dto/profit.dto';
 
@@ -90,12 +92,21 @@ export interface ImportPreviewResult {
 export class ProfitImportService {
     private readonly logger = new Logger(ProfitImportService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly fieldPermissionService: FieldPermissionService,
+    ) {}
 
     /**
      * 预览解析Excel文件，返回解析结果供用户确认
+     *
+     * @param shopIds 数据范围限定：非空时只有「可见店铺」的列才能匹配/导入
+     *                （undefined = 不过滤，与改造前完全一致）
      */
-    async preview(buffer: Buffer): Promise<ImportPreviewResult> {
+    async preview(
+        buffer: Buffer,
+        shopIds?: string[],
+    ): Promise<ImportPreviewResult> {
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.load(buffer as any);
         const ws = workbook.worksheets[0];
@@ -111,9 +122,13 @@ export class ProfitImportService {
             where: { year, month, deletedAt: null },
         });
 
-        // 3. 获取系统中的店铺、别名和快递公司
+        // 3. 获取系统中的店铺、别名和快递公司（数据范围限定时只取可见店铺）
         const shops = await this.prisma.shop.findMany({
-            where: { status: 'ACTIVE', deletedAt: null },
+            where: {
+                status: 'ACTIVE',
+                deletedAt: null,
+                ...(shopIds ? { id: { in: shopIds } } : {}),
+            },
         });
         const shopAliases = await this.prisma.shopAlias.findMany({
             select: { alias: true, shopId: true },
@@ -187,9 +202,15 @@ export class ProfitImportService {
 
     /**
      * 确认导入，将解析结果写入数据库
+     *
+     * @param shopIds 数据范围限定：非空时所有导入店铺必须在可见范围内
      */
-    async confirmImport(buffer: Buffer, user: UserPayload): Promise<{ reportId: string }> {
-        const preview = await this.preview(buffer);
+    async confirmImport(
+        buffer: Buffer,
+        user: UserPayload,
+        shopIds?: string[],
+    ): Promise<{ reportId: string }> {
+        const preview = await this.preview(buffer, shopIds);
         const userId = typeof user === 'string' ? user : (user.userId || user.sub);
 
         // 校验所有店铺都已匹配
@@ -199,6 +220,9 @@ export class ProfitImportService {
                 `以下店铺未匹配: ${unmatchedShops.map(e => e.excelName).join(', ')}`,
             );
         }
+
+        // 数据范围校验：目标店铺必须都在当前用户可见范围内
+        this.assertShopsInScope(preview.entries.map(e => e.shopId), shopIds);
 
         // 校验所有快递公司都已匹配
         for (const entry of preview.entries) {
@@ -362,17 +386,26 @@ export class ProfitImportService {
     /**
      * 从 JSON 数据导入利润表（AI Skill 专用）
      * 接收已结构化的数据，直接写入数据库
+     *
+     * @param shopIds 数据范围限定：非空时所有导入店铺必须在可见范围内
      */
-    async importFromJson(dto: JsonImportProfitReportDto, user: UserPayload): Promise<{ reportId: string }> {
+    async importFromJson(
+        dto: JsonImportProfitReportDto,
+        user: UserPayload,
+        shopIds?: string[],
+    ): Promise<{ reportId: string }> {
         const userId = typeof user === 'string' ? user : (user.userId || user.sub);
 
+        // 数据范围校验：目标店铺必须都在当前用户可见范围内
+        this.assertShopsInScope(dto.entries.map(e => e.shopId), shopIds);
+
         // 校验店铺存在
-        const shopIds = dto.entries.map(e => e.shopId);
+        const shopIdsFromDto = dto.entries.map(e => e.shopId);
         const shops = await this.prisma.shop.findMany({
-            where: { id: { in: shopIds }, status: 'ACTIVE', deletedAt: null },
+            where: { id: { in: shopIdsFromDto }, status: 'ACTIVE', deletedAt: null },
         });
         const validShopIds = new Set(shops.map(s => s.id));
-        const invalidShops = shopIds.filter(id => !validShopIds.has(id));
+        const invalidShops = shopIdsFromDto.filter(id => !validShopIds.has(id));
         if (invalidShops.length > 0) {
             throw new BadRequestException(`以下店铺ID无效: ${invalidShops.join(', ')}`);
         }
@@ -551,6 +584,24 @@ export class ProfitImportService {
     }
 
     // ========== 私有解析方法 ==========
+
+    /**
+     * 数据范围校验：目标店铺必须都在当前用户可见范围内
+     *
+     * ⚠️ shopIds 为 undefined（数据范围为「全部」或未配置）时不过滤，与改造前完全一致。
+     * 越权时抛 NotFoundException（不泄露店铺存在性，也不透露具体是哪家）。
+     */
+    private assertShopsInScope(
+        targetShopIds: (string | null | undefined)[],
+        shopIds?: string[],
+    ) {
+        if (!shopIds) return;
+        const ids = targetShopIds.filter((id): id is string => !!id);
+        const denied = ids.filter(id => !shopIds.includes(id));
+        if (denied.length > 0) {
+            throw new NotFoundException('目标店铺不存在或不在可见范围内');
+        }
+    }
 
     /**
      * 从标题行解析年月（如 "2026.1月利润表" 或 "2025.12月利润表"）

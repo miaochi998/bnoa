@@ -40,6 +40,7 @@ import {
     Clock,
     BarChart3,
 } from 'lucide-react';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 const API_URL =
     getApiBaseUrl();
@@ -51,7 +52,12 @@ interface LogItem {
     template: string;
     status: string;
     category: string;
-    error: string | null;
+    /**
+     * ⚠️ 后端（Prisma EmailLog / email.controller.ts EMAIL_FIELD_MAP）返回的键是
+     * `errorMessage`；此前前端读的是 `error`（恒为 undefined，"错误信息"列永远显示 -）。
+     */
+    errorMessage: string | null;
+    retryCount?: number;
     sentAt: string | null;
     createdAt: string;
 }
@@ -97,6 +103,15 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export default function LogSection() {
+    // 字段级权限（模块 email，全部只读）：to / subject / template / status /
+    // errorMessage / category / retryCount / sentAt
+    const fp = useFieldPermissions('email');
+    /** 表格可见列数（用于加载/空态 colSpan；受控列共 6 个 + 固定的「操作」列） */
+    const visibleColCount =
+        7 -
+        ['sentAt', 'subject', 'category', 'to', 'status', 'errorMessage'].filter(
+            (f) => !fp.canView(f),
+        ).length;
     const [stats, setStats] =
         useState<LogStats | null>(null);
     const [logs, setLogs] = useState<LogItem[]>([]);
@@ -407,24 +422,36 @@ export default function LogSection() {
                 <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead className="w-[160px]">
-                                发送时间
-                            </TableHead>
-                            <TableHead>
-                                邮件主题
-                            </TableHead>
-                            <TableHead className="w-[80px]">
-                                类型
-                            </TableHead>
-                            <TableHead className="w-[180px]">
-                                收件人
-                            </TableHead>
-                            <TableHead className="w-[80px]">
-                                状态
-                            </TableHead>
-                            <TableHead>
-                                错误信息
-                            </TableHead>
+                            {fp.canView('sentAt') && (
+                                <TableHead className="w-[160px]">
+                                    发送时间
+                                </TableHead>
+                            )}
+                            {fp.canView('subject') && (
+                                <TableHead>
+                                    邮件主题
+                                </TableHead>
+                            )}
+                            {fp.canView('category') && (
+                                <TableHead className="w-[80px]">
+                                    类型
+                                </TableHead>
+                            )}
+                            {fp.canView('to') && (
+                                <TableHead className="w-[180px]">
+                                    收件人
+                                </TableHead>
+                            )}
+                            {fp.canView('status') && (
+                                <TableHead className="w-[80px]">
+                                    状态
+                                </TableHead>
+                            )}
+                            {fp.canView('errorMessage') && (
+                                <TableHead>
+                                    错误信息
+                                </TableHead>
+                            )}
                             <TableHead className="w-[80px]">
                                 操作
                             </TableHead>
@@ -434,7 +461,7 @@ export default function LogSection() {
                         {loading ? (
                             <TableRow>
                                 <TableCell
-                                    colSpan={7}
+                                    colSpan={visibleColCount}
                                     className="h-32 text-center"
                                 >
                                     <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
@@ -443,7 +470,7 @@ export default function LogSection() {
                         ) : logs.length === 0 ? (
                             <TableRow>
                                 <TableCell
-                                    colSpan={7}
+                                    colSpan={visibleColCount}
                                     className="h-32 text-center text-muted-foreground"
                                 >
                                     暂无日志记录
@@ -463,44 +490,56 @@ export default function LogSection() {
                                     <TableRow
                                         key={log.id}
                                     >
-                                        <TableCell className="text-sm text-muted-foreground">
-                                            {formatTime(
-                                                log.sentAt ||
-                                                    log.createdAt,
-                                            )}
-                                        </TableCell>
-                                        <TableCell className="text-sm max-w-[200px] truncate">
-                                            {
-                                                log.subject
-                                            }
-                                        </TableCell>
-                                        <TableCell>
-                                            <span className="text-xs text-muted-foreground">
-                                                {CATEGORY_LABELS[
-                                                    log
-                                                        .category
-                                                ] ||
-                                                    log.category}
-                                            </span>
-                                        </TableCell>
-                                        <TableCell className="text-sm max-w-[180px] truncate">
-                                            {log.to}
-                                        </TableCell>
-                                        <TableCell>
-                                            <Badge
-                                                variant={
-                                                    badge.variant
-                                                }
-                                            >
+                                        {fp.canView('sentAt') && (
+                                            <TableCell className="text-sm text-muted-foreground">
+                                                {formatTime(
+                                                    log.sentAt ||
+                                                        log.createdAt,
+                                                )}
+                                            </TableCell>
+                                        )}
+                                        {fp.canView('subject') && (
+                                            <TableCell className="text-sm max-w-[200px] truncate">
                                                 {
-                                                    badge.label
+                                                    log.subject
                                                 }
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
-                                            {log.error ||
-                                                '-'}
-                                        </TableCell>
+                                            </TableCell>
+                                        )}
+                                        {fp.canView('category') && (
+                                            <TableCell>
+                                                <span className="text-xs text-muted-foreground">
+                                                    {CATEGORY_LABELS[
+                                                        log
+                                                            .category
+                                                    ] ||
+                                                        log.category}
+                                                </span>
+                                            </TableCell>
+                                        )}
+                                        {fp.canView('to') && (
+                                            <TableCell className="text-sm max-w-[180px] truncate">
+                                                {log.to}
+                                            </TableCell>
+                                        )}
+                                        {fp.canView('status') && (
+                                            <TableCell>
+                                                <Badge
+                                                    variant={
+                                                        badge.variant
+                                                    }
+                                                >
+                                                    {
+                                                        badge.label
+                                                    }
+                                                </Badge>
+                                            </TableCell>
+                                        )}
+                                        {fp.canView('errorMessage') && (
+                                            <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
+                                                {log.errorMessage ||
+                                                    '-'}
+                                            </TableCell>
+                                        )}
                                         <TableCell>
                                             {log.status ===
                                                 'FAILED' && (

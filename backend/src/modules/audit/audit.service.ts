@@ -139,6 +139,7 @@ export class AuditService {
     query: QueryAuditLogDto,
   ): Promise<{ items: AuditLogInfo[]; meta: PaginationMeta }> {
     const {
+      keyword,
       action,
       module,
       username,
@@ -150,6 +151,16 @@ export class AuditService {
     } = query;
 
     const where: any = {};
+
+    // 关键字：模糊匹配操作描述与操作人（前端搜索框此前没有把条件传给后端）
+    if (keyword) {
+      where.OR = [
+        { description: { contains: keyword, mode: 'insensitive' } },
+        { username: { contains: keyword, mode: 'insensitive' } },
+        { realName: { contains: keyword, mode: 'insensitive' } },
+        { resource: { contains: keyword, mode: 'insensitive' } },
+      ];
+    }
 
     if (action) {
       where.action = action;

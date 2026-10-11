@@ -19,6 +19,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { apiClient } from '@/lib/api';
+import { usePermissionStore } from '@/lib/stores/permission-store';
 import { Folder, FolderTreeNode, RealFolder, FolderTreeNodeWithShare, SharePermission, CreateSystemSharedFolderRequest, FOLDER_SCOPE_IDS } from '@/types/file';
 import {
   Select,
@@ -270,8 +271,7 @@ const FOLDER_ICONS = [
   { value: 'favorite', label: '收藏', icon: Star },
 ];
 
-export function FolderTree({ selectedFolderId, onSelectFolder, onRefresh, onShareFolder, isAdmin = false, refreshKey }: FolderTreeProps) {
-  const [personalFolders, setPersonalFolders] = useState<FolderTreeNodeWithShare[]>([]);
+export function FolderTree({ selectedFolderId, onSelectFolder, onRefresh, onShareFolder, isAdmin = false, refreshKey }: FolderTreeProps) {  const [personalFolders, setPersonalFolders] = useState<FolderTreeNodeWithShare[]>([]);
   const [sharedWithMeFolders, setSharedWithMeFolders] = useState<FolderTreeNodeWithShare[]>([]);
   const [systemSharedFolders, setSystemSharedFolders] = useState<FolderTreeNodeWithShare[]>([]);
   const [realFolders, setRealFolders] = useState<RealFolder[]>([]);
@@ -329,6 +329,12 @@ export function FolderTree({ selectedFolderId, onSelectFolder, onRefresh, onShar
   };
 
   const fetchRealFolders = async () => {
+    // 无「真实文件夹管理」权限时不发请求，避免 403 干扰控制台
+    const canManage = usePermissionStore.getState().hasPermission('folder:manage');
+    if (!canManage) {
+      setRealFolders([]);
+      return;
+    }
     try {
       const data = await apiClient.getRealFolders();
       setRealFolders(data);
@@ -336,8 +342,9 @@ export function FolderTree({ selectedFolderId, onSelectFolder, onRefresh, onShar
       if (data.length > 0 && !selectedRealFolderId) {
         setSelectedRealFolderId(data[0].id);
       }
-    } catch (error) {
-      console.error('Failed to fetch real folders:', error);
+    } catch {
+      // 无「真实文件夹管理」权限属于正常情况，静默处理（不再往控制台抛错）
+      setRealFolders([]);
     }
   };
 

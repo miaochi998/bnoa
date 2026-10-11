@@ -7,12 +7,14 @@ import { RedisService } from '../../common/services/redis.service';
 import { EmailService } from './email.service';
 import { EmailTemplateService } from './email-template.service';
 import { EmailController } from './email.controller';
+import { FieldPermissionModule } from '../role/field-permission.module';
 
 @Global()
 @Module({
     imports: [
         ConfigModule,
         PrismaModule,
+        FieldPermissionModule,
         BullModule.registerQueue({ name: 'email' }),
         JwtModule.registerAsync({
             inject: [ConfigService],

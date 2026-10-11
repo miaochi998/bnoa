@@ -37,6 +37,7 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { apiClient } from '@/lib/api';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import {
     BookOpen,
     Plus,
@@ -80,6 +81,7 @@ const defaultForm = {
 };
 
 export default function DictionaryPage() {
+  const fp = useFieldPermissions('dictionary');
     const [types, setTypes] = useState<DictType[]>([]);
     const [items, setItems] = useState<DictItem[]>([]);
     const [selectedType, setSelectedType] =
@@ -377,7 +379,7 @@ export default function DictionaryPage() {
                                                     </TableCell>
                                                     <TableCell className="text-muted-foreground text-sm">
                                                         {
-                                                            item.itemValue
+                                                            fp.canView('itemValue') ? item.itemValue : '******'
                                                         }
                                                     </TableCell>
                                                     <TableCell>
@@ -402,6 +404,13 @@ export default function DictionaryPage() {
                                                         <Switch
                                                             checked={
                                                                 item.isActive
+                                                            }
+                                                            // isActive 被配成只读时禁用开关，
+                                                            // 否则点击会被后端字段权限拦截（403）
+                                                            disabled={
+                                                                !fp.canEdit(
+                                                                    'isActive',
+                                                                )
                                                             }
                                                             onCheckedChange={() =>
                                                                 handleToggle(

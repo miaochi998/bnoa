@@ -21,18 +21,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface Zone {
   id: string;
-  name: string;
+  name?: string;
   sortOrder: number;
 }
 
 interface WeightRange {
   id: string;
-  label: string;
-  minWeight: number;
-  maxWeight: number;
+  label?: string;
+  minWeight?: number;
+  maxWeight?: number;
   sortOrder: number;
 }
 
@@ -43,6 +44,7 @@ interface PriceMatrixPanelProps {
 }
 
 export function PriceMatrixPanel({ companyId, companyName }: PriceMatrixPanelProps) {
+  const fp = useFieldPermissions('express');
   const [zones, setZones] = useState<Zone[]>([]);
   const [weightRanges, setWeightRanges] = useState<WeightRange[]>([]);
   const [matrix, setMatrix] = useState<Record<string, Record<string, number>>>({});
@@ -104,6 +106,10 @@ export function PriceMatrixPanel({ companyId, companyName }: PriceMatrixPanelPro
 
   // 保存价格
   const handleSave = async () => {
+    if (!fp.canEdit('price.price')) {
+      alert('你没有「单价」的编辑权限');
+      return;
+    }
     setSaving(true);
     try {
       const prices: { zoneId: string; weightRangeId: string; price: number }[] = [];
@@ -177,6 +183,7 @@ export function PriceMatrixPanel({ companyId, companyName }: PriceMatrixPanelPro
                 variant="outline"
                 size="sm"
                 onClick={() => setCopyDialogOpen(true)}
+                disabled={!fp.canEdit('price.price')}
               >
                 <Copy className="w-4 h-4 mr-1" />
                 复制配置
@@ -193,7 +200,7 @@ export function PriceMatrixPanel({ companyId, companyName }: PriceMatrixPanelPro
               <Button
                 size="sm"
                 onClick={handleSave}
-                disabled={!hasChanges || saving}
+                disabled={!hasChanges || saving || !fp.canEdit('price.price')}
               >
                 <Save className="w-4 h-4 mr-1" />
                 {saving ? '保存中...' : '保存'}
@@ -209,7 +216,9 @@ export function PriceMatrixPanel({ companyId, companyName }: PriceMatrixPanelPro
                   <TableHead className="w-32">区域 \ 重量</TableHead>
                   {weightRanges.map(wr => (
                     <TableHead key={wr.id} className="text-center min-w-[100px]">
-                      <div className="text-xs text-muted-foreground">{wr.label}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {fp.canView('weightRange.label') ? (wr.label ?? '') : '******'}
+                      </div>
                     </TableHead>
                   ))}
                 </TableRow>
@@ -217,17 +226,24 @@ export function PriceMatrixPanel({ companyId, companyName }: PriceMatrixPanelPro
               <TableBody>
                 {zones.map(zone => (
                   <TableRow key={zone.id}>
-                    <TableCell className="font-medium">{zone.name}</TableCell>
+                    <TableCell className="font-medium">
+                      {fp.canView('zone.name') ? (zone.name ?? '') : '******'}
+                    </TableCell>
                     {weightRanges.map(weightRange => (
                       <TableCell key={weightRange.id} className="p-2">
-                        <Input
-                          type="number"
-                          step="0.001"
-                          min="0"
-                          value={editedMatrix[zone.id]?.[weightRange.id] || 0}
-                          onChange={(e) => handlePriceChange(zone.id, weightRange.id, e.target.value)}
-                          className="w-24 text-center"
-                        />
+                        {fp.canView('price.price') ? (
+                          <Input
+                            type="number"
+                            step="0.001"
+                            min="0"
+                            value={editedMatrix[zone.id]?.[weightRange.id] || 0}
+                            onChange={(e) => handlePriceChange(zone.id, weightRange.id, e.target.value)}
+                            disabled={!fp.canEdit('price.price')}
+                            className="w-24 text-center"
+                          />
+                        ) : (
+                          <div className="w-24 text-center text-muted-foreground">******</div>
+                        )}
                       </TableCell>
                     ))}
                   </TableRow>

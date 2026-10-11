@@ -118,7 +118,7 @@ export default function DashboardPage() {
         { title: '我的文件', desc: '查看管理文件', href: '/files', icon: FolderOpen, color: 'text-warning', bgColor: 'bg-warning/10', permission: 'file:manage' },
         { title: '个人资料', desc: '编辑个人信息', href: '/profile', icon: User, color: 'text-success', bgColor: 'bg-success/10', permission: null as string | null },
         { title: '创建用户', desc: '添加新用户账号', href: '/users', icon: Users, color: 'text-primary', bgColor: 'bg-primary/10', permission: 'user:create' },
-        { title: '角色管理', desc: '配置权限角色', href: '/roles', icon: Shield, color: 'text-success', bgColor: 'bg-success/10', permission: 'role:manage' },
+        { title: '角色管理', desc: '配置权限角色', href: '/roles', icon: Shield, color: 'text-success', bgColor: 'bg-success/10', permission: 'role:list' },
         { title: '审计日志', desc: '系统操作记录', href: '/audit-logs', icon: ClipboardList, color: 'text-info', bgColor: 'bg-info/10', permission: 'audit:view' },
         { title: '系统配置', desc: '管理系统参数', href: '/settings', icon: Settings, color: 'text-warning', bgColor: 'bg-warning/10', permission: 'system:config' },
     ].filter((a) => a.permission === null || hasPermission(a.permission));

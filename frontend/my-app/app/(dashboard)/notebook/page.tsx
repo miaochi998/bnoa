@@ -7,9 +7,11 @@ import { Input } from '@/components/ui/input';
 import { Plus, Search, Eye, Edit, Trash2 } from 'lucide-react';
 import { notebookAPI, Notebook } from '@/lib/api';
 import { usePermissionStore } from '@/lib/stores/permission-store';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import { toast } from 'sonner';
 
 export default function NotebookListPage() {
+    const fp = useFieldPermissions('notebook');
     const router = useRouter();
     const { hasPermission } = usePermissionStore();
     const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -125,7 +127,7 @@ export default function NotebookListPage() {
                                     className="border-b hover:bg-muted/20"
                                 >
                                     <td className="px-4 py-3">
-                                        {notebook.title}
+                                        {fp.canView('title') ? (notebook.title ?? '') : '******'}
                                     </td>
                                     <td className="px-4 py-3 text-sm text-muted-foreground">
                                         {formatDate(notebook.createdAt)}

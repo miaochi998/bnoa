@@ -24,6 +24,7 @@ import {
 import { ConsumableForm } from './components/ConsumableForm';
 import { PermissionGate } from '@/components/PermissionGate';
 import { EditableCell } from '@/components/shared/EditableCell';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import { ConsumablePriceDialog } from './components/ConsumablePriceDialog';
 import {
     DndContext,
@@ -93,6 +94,7 @@ function SortableRow({ id, children }: { id: string; children: React.ReactNode }
 }
 
 export default function ConsumablesPage() {
+    const fp = useFieldPermissions('consumable');
     const [list, setList] = useState<Consumable[]>([]);
     const [loading, setLoading] = useState(true);
     const [keyword, setKeyword] = useState('');
@@ -208,6 +210,10 @@ export default function ConsumablesPage() {
 
     // 更新耗材字段
     const handleUpdateField = async (id: string, field: 'name' | 'specDesc', newValue: string) => {
+        if (!fp.canEdit(field)) {
+            alert(`你没有「${field === 'name' ? '耗材名称' : '规格描述'}」的编辑权限`);
+            return;
+        }
         try {
             await apiClient.updateConsumable(id, { [field]: newValue });
             // 更新本地列表
@@ -309,40 +315,60 @@ export default function ConsumablesPage() {
                                     <TableHeader>
                                         <TableRow className="border-[#1e1e1e] hover:bg-transparent">
                                             <TableHead className="text-[#8e8e8e] w-10">拖拽</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">编码</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">名称</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">分类</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">规格</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">当前价格</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">状态</TableHead>
+                                            {fp.canView('code') && (
+                                                <TableHead className="text-[#8e8e8e]">编码</TableHead>
+                                            )}
+                                            {fp.canView('name') && (
+                                                <TableHead className="text-[#8e8e8e]">名称</TableHead>
+                                            )}
+                                            {fp.canView('category') && (
+                                                <TableHead className="text-[#8e8e8e]">分类</TableHead>
+                                            )}
+                                            {fp.canView('specDesc') && (
+                                                <TableHead className="text-[#8e8e8e]">规格</TableHead>
+                                            )}
+                                            {fp.canView('price.unitPrice') && (
+                                                <TableHead className="text-[#8e8e8e]">当前价格</TableHead>
+                                            )}
+                                            {fp.canView('status') && (
+                                                <TableHead className="text-[#8e8e8e]">状态</TableHead>
+                                            )}
                                             <TableHead className="text-[#8e8e8e] text-right">操作</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {list.map((item) => (
                                             <SortableRow key={item.id} id={item.id}>
+                                                {fp.canView('code') && (
                                                 <TableCell className="font-medium text-white">
-                                                    {item.code}
+                                                    {item.code ?? ''}
                                                 </TableCell>
+                                                )}
+                                                {fp.canView('name') && (
                                                 <TableCell className="text-white">
                                                     <PermissionGate
                                                         permission="consumable:update"
-                                                        fallback={<span>{item.name}</span>}
+                                                        fallback={<span>{item.name ?? ''}</span>}
                                                     >
                                                         <EditableCell
                                                             value={item.name}
                                                             onSave={(newValue) => handleUpdateField(item.id, 'name', newValue)}
                                                             placeholder="耗材名称"
                                                             maxLength={100}
+                                                            disabled={!fp.canEdit('name')}
                                                         />
                                                     </PermissionGate>
                                                 </TableCell>
+                                                )}
+                                                {fp.canView('category') && (
                                                 <TableCell>
                                                     <DictTag
                                                         typeCode="consumable_category"
                                                         value={item.category}
                                                     />
                                                 </TableCell>
+                                                )}
+                                                {fp.canView('specDesc') && (
                                                 <TableCell className="text-[#8e8e8e]">
                                                     <PermissionGate
                                                         permission="consumable:update"
@@ -353,22 +379,29 @@ export default function ConsumablesPage() {
                                                             onSave={(newValue) => handleUpdateField(item.id, 'specDesc', newValue)}
                                                             placeholder="规格描述"
                                                             maxLength={200}
+                                                            disabled={!fp.canEdit('specDesc')}
                                                         />
                                                     </PermissionGate>
                                                 </TableCell>
+                                                )}
+                                                {fp.canView('price.unitPrice') && (
                                                 <TableCell className="text-white">
                                                     {item.prices?.[0]
                                                         ? `¥${Number(item.prices[0].unitPrice).toFixed(3)}`
                                                         : '-'}
                                                 </TableCell>
+                                                )}
+                                                {fp.canView('status') && (
                                                 <TableCell>
                                                     <DictTag
                                                         typeCode="consumable_status"
                                                         value={item.status}
                                                     />
                                                 </TableCell>
+                                                )}
                                                 <TableCell className="text-right">
                                                     <div className="flex justify-end gap-2">
+                                                        {fp.canView('price.unitPrice') && (
                                                         <PermissionGate permission="consumable:price">
                                                             <Button
                                                                 variant="ghost"
@@ -380,6 +413,7 @@ export default function ConsumablesPage() {
                                                                 <DollarSign className="w-4 h-4" />
                                                             </Button>
                                                         </PermissionGate>
+                                                        )}
                                                         <PermissionGate permission="consumable:update">
                                                             <Button
                                                                 variant="ghost"

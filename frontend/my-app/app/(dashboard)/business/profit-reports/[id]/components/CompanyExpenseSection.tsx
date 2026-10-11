@@ -9,6 +9,7 @@ import {
     FolderMinus, Layers,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface Props {
     report: any;
@@ -20,6 +21,7 @@ interface Props {
 export default function CompanyExpenseSection({
     report, reportId, isDraft, onRefresh,
 }: Props) {
+    const fp = useFieldPermissions('profit');
     const [companyItems, setCompanyItems] = useState<any[]>([]);
     const [nonItems, setNonItems] = useState<any[]>([]);
     const [allocCats, setAllocCats] = useState<any[]>([]);
@@ -118,6 +120,14 @@ export default function CompanyExpenseSection({
         </div>
     );
 
+    if (!fp.canView('amount')) {
+        return (
+            <div className="py-6 text-center text-sm text-muted-foreground">
+                你没有「费用金额」的查看权限
+            </div>
+        );
+    }
+
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* 公司费用 */}
@@ -139,7 +149,7 @@ export default function CompanyExpenseSection({
                                     setCompanyItems(u);
                                 }}
                                 className="flex-1 h-8 text-sm"
-                                readOnly={!isDraft}
+                                readOnly={!isDraft || !fp.canEdit('amount')}
                             />
                             <Input
                                 type="number"
@@ -151,7 +161,7 @@ export default function CompanyExpenseSection({
                                     setCompanyItems(u);
                                 }}
                                 className="w-24 h-8 text-sm text-right"
-                                readOnly={!isDraft}
+                                readOnly={!isDraft || !fp.canEdit('amount')}
                             />
                             <div className="flex items-center gap-1">
                                 <Checkbox
@@ -229,7 +239,7 @@ export default function CompanyExpenseSection({
                                     setNonItems(u);
                                 }}
                                 className="flex-1 h-8 text-sm"
-                                readOnly={!isDraft}
+                                readOnly={!isDraft || !fp.canEdit('amount')}
                             />
                             <Input
                                 type="number"
@@ -241,7 +251,7 @@ export default function CompanyExpenseSection({
                                     setNonItems(u);
                                 }}
                                 className="w-24 h-8 text-sm text-right"
-                                readOnly={!isDraft}
+                                readOnly={!isDraft || !fp.canEdit('amount')}
                             />
                             {isDraft && (
                                 <Button variant="ghost" size="icon"
@@ -305,7 +315,7 @@ export default function CompanyExpenseSection({
                                     setAllocCats(u);
                                 }}
                                 className="flex-1 h-8 text-sm"
-                                readOnly={!isDraft}
+                                readOnly={!isDraft || !fp.canEdit('amount')}
                             />
                             {isDraft && (
                                 <Button variant="ghost" size="icon"

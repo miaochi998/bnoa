@@ -5,13 +5,14 @@ import { AuditController } from './audit.controller';
 import { AuditInterceptor } from './interceptors/audit.interceptor';
 import { PrismaModule } from '../../config/prisma.module';
 import { AuthModule } from '../auth/auth.module';
+import { RoleModule } from '../role/role.module';
 
 /**
  * 审计日志模块
  * 提供审计日志的记录、查询和统计功能
  */
 @Module({
-  imports: [ConfigModule, PrismaModule, AuthModule],
+  imports: [ConfigModule, PrismaModule, AuthModule, RoleModule],
   providers: [AuditService, AuditInterceptor],
   controllers: [AuditController],
   exports: [AuditService, AuditInterceptor],

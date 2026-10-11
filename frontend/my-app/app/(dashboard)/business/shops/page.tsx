@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     Card,
     CardContent,
@@ -38,6 +38,7 @@ import { apiClient } from '@/lib/api';
 import { PermissionGate } from '@/components/PermissionGate';
 import { usePermissionStore } from '@/lib/stores/permission-store';
 import { EditableCell } from '@/components/shared/EditableCell';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import { EditableSelectCell } from '@/components/shared/EditableSelectCell';
 import { EditableSwitchCell } from '@/components/shared/EditableSwitchCell';
 import { SortableTable } from '@/components/shared/SortableTable';
@@ -126,6 +127,21 @@ export default function ShopPage() {
 
     // 是否有店铺更新权限（决定内联编辑/开关/拖拽是否可交互）
     const canUpdate = usePermissionStore((s) => s.hasPermission('shop:update'));
+    // 信息权限（能看/能改哪些字段）
+    const fp = useFieldPermissions('shop');
+    const { hasPermission } = usePermissionStore();
+
+    // 列宽模板按「可见字段」动态生成（隐藏某列时不会错位）
+    // 使用内联样式而非 Tailwind 动态类名（动态拼接的类名不会被 Tailwind 编译）
+    const listGrid = useMemo(() => {
+        const cols = ['minmax(0,1.2fr)']; // 店铺名称
+        if (fp.canView('platformId')) cols.push('150px');
+        if (fp.canView('managerId')) cols.push('180px');
+        if (fp.canView('status')) cols.push('120px');
+        if (fp.canView('remark')) cols.push('minmax(0,1fr)');
+        cols.push('140px'); // 操作
+        return cols.join(' ');
+    }, [fp]);
 
     const platformOptions = platforms.map((p) => ({ label: p.name, value: p.id }));
     const userOptions = users.map((u) => ({ label: `${u.name} (${u.username})`, value: u.id }));
@@ -156,6 +172,8 @@ export default function ShopPage() {
     }, []);
 
     const fetchUsers = useCallback(async () => {
+        // 没有「用户管理」查看权限时不要请求，否则会产生 403 报错
+        if (!hasPermission('user:list')) return;
         try {
             const data = await apiClient.getUsers({}, { page: 1, pageSize: 1000 });
             setUsers(data.nodes || []);
@@ -369,12 +387,15 @@ export default function ShopPage() {
                             {/* 表头（与 SortableRow 的拖拽手柄占位对齐） */}
                             <div className="flex items-center border-b border-[#1e1e1e]">
                                 <div className={canUpdate ? 'w-[32px] shrink-0' : 'hidden'} />
-                                <div className={`flex-1 grid ${LIST_GRID} gap-x-4 px-2 py-2 text-xs font-medium text-muted-foreground`}>
-                                    <div>店铺名称</div>
-                                    <div>所属平台</div>
-                                    <div>负责人（用户）</div>
-                                    <div>状态</div>
-                                    <div>备注</div>
+                                <div
+                                    className="flex-1 grid gap-x-4 px-2 py-2 text-xs font-medium text-muted-foreground"
+                                    style={{ gridTemplateColumns: listGrid }}
+                                >
+                                    {fp.canView('name') && <div>店铺名称</div>}
+                                    {fp.canView('platformId') && <div>所属平台</div>}
+                                    {fp.canView('managerId') && <div>负责人（用户）</div>}
+                                    {fp.canView('status') && <div>状态</div>}
+                                    {fp.canView('remark') && <div>备注</div>}
                                     <div className="text-right">操作</div>
                                 </div>
                             </div>
@@ -388,13 +409,15 @@ export default function ShopPage() {
                             >
                                 {(item, isDragging) => (
                                     <div
-                                        className={`flex-1 grid ${LIST_GRID} gap-x-4 px-2 items-center py-2 ${
+                                        className={`flex-1 grid gap-x-4 px-2 items-center py-2 ${
                                             isDragging ? 'bg-[#2e2e2e]' : ''
                                         }`}
+                                        style={{ gridTemplateColumns: listGrid }}
                                     >
+                                        {fp.canView('name') && (
                                         <div className="min-w-0 font-medium">
                                             <PermissionGate
-                                                permission="shop:update"
+                                                permission={fp.canEdit('name') ? 'shop:update' : 'shop:__disabled__'}
                                                 fallback={<span>{item.name || '-'}</span>}
                                             >
                                                 <EditableCell
@@ -405,9 +428,11 @@ export default function ShopPage() {
                                                 />
                                             </PermissionGate>
                                         </div>
+                                        )}
+                                        {fp.canView('platformId') && (
                                         <div className="min-w-0">
                                             <PermissionGate
-                                                permission="shop:update"
+                                                permission={fp.canEdit('platformId') ? 'shop:update' : 'shop:__disabled__'}
                                                 fallback={<span>{item.platform?.name || '-'}</span>}
                                             >
                                                 <EditableSelectCell
@@ -418,9 +443,11 @@ export default function ShopPage() {
                                                 />
                                             </PermissionGate>
                                         </div>
+                                        )}
+                                        {fp.canView('managerId') && (
                                         <div className="min-w-0">
                                             <PermissionGate
-                                                permission="shop:update"
+                                                permission={fp.canEdit('managerId') ? 'shop:update' : 'shop:__disabled__'}
                                                 fallback={
                                                     <span>
                                                         {item.manager
@@ -437,28 +464,32 @@ export default function ShopPage() {
                                                 />
                                             </PermissionGate>
                                         </div>
+                                        )}
+                                        {fp.canView('status') && (
                                         <div>
                                             <PermissionGate
-                                                permission="shop:update"
+                                                permission={fp.canEdit('status') ? 'shop:update' : 'shop:__disabled__'}
                                                 fallback={
                                                     <span className={item.status === 'ACTIVE' ? 'text-emerald-400' : 'text-gray-500'}>
-                                                        {item.status === 'ACTIVE' ? '启用' : '停用'}
+                                                        {item.status === 'ACTIVE' ? '正常' : '关店'}
                                                     </span>
                                                 }
                                             >
                                                 <EditableSwitchCell
                                                     checked={item.status === 'ACTIVE'}
                                                     onSave={(checked) =>
-                                                        handleUpdateField(item.id, 'status', checked ? 'ACTIVE' : 'INACTIVE')
+                                                        handleUpdateField(item.id, 'status', checked ? 'ACTIVE' : 'CLOSED')
                                                     }
                                                     activeLabel="启用"
                                                     inactiveLabel="停用"
                                                 />
                                             </PermissionGate>
                                         </div>
+                                        )}
+                                        {fp.canView('remark') && (
                                         <div className="min-w-0 truncate text-muted-foreground">
                                             <PermissionGate
-                                                permission="shop:update"
+                                                permission={fp.canEdit('remark') ? 'shop:update' : 'shop:__disabled__'}
                                                 fallback={<span>{item.remark || '-'}</span>}
                                             >
                                                 <EditableCell
@@ -469,6 +500,7 @@ export default function ShopPage() {
                                                 />
                                             </PermissionGate>
                                         </div>
+                                        )}
                                         <div className="flex items-center justify-end gap-1">
                                             <PermissionGate permission="shop:update">
                                                 <Button
@@ -582,10 +614,8 @@ export default function ShopPage() {
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="ACTIVE">经营中</SelectItem>
-                                    <SelectItem value="REST">已停业</SelectItem>
-                                    <SelectItem value="CLOSED">已关店</SelectItem>
-                                    <SelectItem value="INACTIVE">停用</SelectItem>
+                                    <SelectItem value="ACTIVE">正常</SelectItem>
+                                    <SelectItem value="CLOSED">关店</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>

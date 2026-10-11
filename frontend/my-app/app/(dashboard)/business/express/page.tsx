@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { apiClient } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,7 @@ import { ExpressCompanyForm } from './components/ExpressCompanyForm';
 import { PriceManageDialog } from './components/PriceManageDialog';
 import { PermissionGate } from '@/components/PermissionGate';
 import { EditableCell } from '@/components/shared/EditableCell';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import { EditableSwitchCell } from '@/components/shared/EditableSwitchCell';
 import { SortableTable } from '@/components/shared/SortableTable';
 import { usePermissionStore } from '@/lib/stores/permission-store';
@@ -55,6 +56,20 @@ export default function ExpressPage() {
 
     const permissionStore = usePermissionStore();
     const canUpdate = permissionStore.loaded && permissionStore.hasPermission('express:update');
+    // 信息权限（能看/能改哪些字段）
+    const fp = useFieldPermissions('express');
+
+    // 列宽模板按「可见字段」动态生成（隐藏列时不会错位；用内联样式，避免 Tailwind 动态类名不生效）
+    const expressGrid = useMemo(() => {
+        const cols: string[] = [];
+        if (fp.canView('name')) cols.push('minmax(140px,1.4fr)');
+        if (fp.canView('code')) cols.push('minmax(90px,0.8fr)');
+        if (fp.canView('contactName')) cols.push('minmax(120px,1fr)');
+        if (fp.canView('contactPhone')) cols.push('minmax(140px,1.2fr)');
+        if (fp.canView('status')) cols.push('minmax(110px,1fr)');
+        cols.push('88px'); // 操作
+        return cols.join(' ');
+    }, [fp]);
 
     // 加载快递公司列表
     const loadCompanies = useCallback(async () => {
@@ -226,12 +241,15 @@ export default function ExpressPage() {
                             {/* 表头 */}
                             <div className="flex items-center border-b border-border bg-[#1e1e1e]/40">
                                 {canUpdate && <div className="w-8 shrink-0" aria-hidden />}
-                                <div className={`flex-1 ${GRID_COLS} px-3 py-2 text-xs text-muted-foreground`}>
-                                    <div>快递公司</div>
-                                    <div>编码</div>
-                                    <div>联系人</div>
-                                    <div>联系电话</div>
-                                    <div>状态</div>
+                                <div
+                                    className="flex-1 grid items-center gap-x-4 px-3 py-2 text-xs text-muted-foreground"
+                                    style={{ gridTemplateColumns: expressGrid }}
+                                >
+                                    {fp.canView('name') && <div>快递公司</div>}
+                                    {fp.canView('code') && <div>编码</div>}
+                                    {fp.canView('contactName') && <div>联系人</div>}
+                                    {fp.canView('contactPhone') && <div>联系电话</div>}
+                                    {fp.canView('status') && <div>状态</div>}
                                     <div className="text-right">操作</div>
                                 </div>
                             </div>
@@ -244,38 +262,51 @@ export default function ExpressPage() {
                                 className="divide-y divide-border"
                             >
                                 {(company) => (
-                                    <div className={`grid ${GRID_COLS} px-3 py-2 text-sm`}>
+                                    <div
+                                        className="grid items-center gap-x-4 px-3 py-2 text-sm"
+                                        style={{ gridTemplateColumns: expressGrid }}
+                                    >
+                                        {fp.canView('name') && (
                                         <div className="font-medium text-white">{company.name}</div>
+                                        )}
+                                        {fp.canView('code') && (
                                         <div className="text-muted-foreground">{company.code}</div>
+                                        )}
+                                        {fp.canView('contactName') && (
                                         <div>
                                             <EditableCell
                                                 value={company.contactName}
                                                 onSave={(newValue) => handleUpdateField(company.id, 'contactName', newValue)}
-                                                disabled={!canUpdate}
                                                 placeholder="联系人"
                                                 type="text"
                                                 maxLength={50}
+                                                disabled={!canUpdate || !fp.canEdit('contactName')}
                                             />
                                         </div>
+                                        )}
+                                        {fp.canView('contactPhone') && (
                                         <div>
                                             <EditableCell
                                                 value={company.contactPhone}
                                                 onSave={(newValue) => handleUpdateField(company.id, 'contactPhone', newValue)}
-                                                disabled={!canUpdate}
                                                 placeholder="联系电话"
                                                 type="tel"
                                                 maxLength={20}
+                                                disabled={!canUpdate || !fp.canEdit('contactPhone')}
                                             />
                                         </div>
+                                        )}
+                                        {fp.canView('status') && (
                                         <div>
                                             <EditableSwitchCell
                                                 checked={company.status === 'ACTIVE'}
                                                 onSave={(checked) => handleStatusChange(company.id, checked)}
-                                                disabled={!canUpdate}
                                                 activeLabel="启用"
                                                 inactiveLabel="停用"
+                                                disabled={!canUpdate || !fp.canEdit('status')}
                                             />
                                         </div>
+                                        )}
                                         <div className="flex items-center justify-end gap-2">
                                             <PermissionGate permission="express:price">
                                                 <Button

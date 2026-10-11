@@ -15,6 +15,8 @@ import {
   ApiResponse,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionGuard } from '../../common/guards/permission.guard';
+import { Permissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UploadSessionService } from './upload-session.service';
 import {
@@ -35,7 +37,8 @@ import {
  */
 @ApiTags('文件上传')
 @Controller('upload')
-@UseGuards(JwtAuthGuard)
+// 必须同时挂 PermissionGuard，否则 @Permissions 装饰器不生效
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @ApiBearerAuth()
 export class UploadController {
   constructor(private readonly uploadSessionService: UploadSessionService) {}
@@ -51,6 +54,7 @@ export class UploadController {
   }
 
   @Post('init')
+  @Permissions('file:upload')
   @ApiOperation({ summary: '初始化上传 - 创建上传会话' })
   @ApiResponse({ status: 201, type: InitUploadResponse })
   async initUpload(
@@ -61,6 +65,7 @@ export class UploadController {
   }
 
   @Post('presigned-urls')
+  @Permissions('file:upload')
   @ApiOperation({ summary: '获取预签名URL - 用于分片上传' })
   @ApiResponse({ status: 200, type: PresignedUrlsResponse })
   async generatePresignedUrls(
@@ -71,6 +76,7 @@ export class UploadController {
   }
 
   @Post('complete')
+  @Permissions('file:upload')
   @ApiOperation({ summary: '完成上传 - 合并分片并创建文件记录' })
   @ApiResponse({ status: 200, type: CompleteUploadResponse })
   async completeUpload(

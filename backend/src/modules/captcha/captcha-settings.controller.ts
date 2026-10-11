@@ -24,6 +24,8 @@ import {
     ApiConsumes,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { PermissionGuard } from '../../common/guards/permission.guard';
+import { Permissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CaptchaService } from './captcha.service';
 import { CaptchaBackgroundService } from './captcha-background.service';
@@ -41,7 +43,7 @@ import { Public } from '../../common/decorators/public.decorator';
 
 @ApiTags('验证码管理')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('captcha-settings')
 export class CaptchaSettingsController {
     constructor(
@@ -53,6 +55,7 @@ export class CaptchaSettingsController {
     ) {}
 
     @Get('config')
+    @Permissions('captcha:manage')
     @ApiOperation({ summary: '获取完整验证码配置' })
     async getConfig() {
         const configs =
@@ -111,6 +114,7 @@ export class CaptchaSettingsController {
     }
 
     @Patch('config')
+    @Permissions('captcha:update')
     @ApiOperation({ summary: '更新验证码配置' })
     async updateConfig(
         @Body() dto: UpdateCaptchaConfigDto,
@@ -154,6 +158,7 @@ export class CaptchaSettingsController {
     }
 
     @Get('backgrounds')
+    @Permissions('captcha:manage')
     @ApiOperation({ summary: '获取背景图列表' })
     async getBackgrounds() {
         const list = await this.bgService.findAll();
@@ -165,6 +170,7 @@ export class CaptchaSettingsController {
     }
 
     @Get('backgrounds/stats')
+    @Permissions('captcha:manage')
     @ApiOperation({ summary: '获取背景图统计' })
     async getBackgroundStats() {
         const data = await this.bgService.getStats();
@@ -172,6 +178,7 @@ export class CaptchaSettingsController {
     }
 
     @Post('backgrounds')
+    @Permissions('captcha:background')
     @ApiOperation({ summary: '上传单张背景图记录' })
     async createBackground(
         @Body() dto: CreateBackgroundDto,
@@ -189,6 +196,7 @@ export class CaptchaSettingsController {
     }
 
     @Post('backgrounds/batch')
+    @Permissions('captcha:background')
     @ApiOperation({ summary: '批量上传背景图记录' })
     async batchCreateBackground(
         @Body() dto: BatchCreateBackgroundDto,
@@ -206,6 +214,7 @@ export class CaptchaSettingsController {
     }
 
     @Patch('backgrounds/:id')
+    @Permissions('captcha:background')
     @ApiOperation({ summary: '更新背景图' })
     async updateBackground(
         @Param('id') id: string,
@@ -223,6 +232,7 @@ export class CaptchaSettingsController {
     }
 
     @Delete('backgrounds/:id')
+    @Permissions('captcha:background')
     @ApiOperation({ summary: '删除单张背景图' })
     async deleteBackground(@Param('id') id: string) {
         await this.bgService.delete(id);
@@ -230,6 +240,7 @@ export class CaptchaSettingsController {
     }
 
     @Delete('backgrounds/batch')
+    @Permissions('captcha:background')
     @ApiOperation({ summary: '批量删除背景图' })
     async batchDeleteBackground(
         @Body() dto: BatchDeleteDto,
@@ -244,6 +255,7 @@ export class CaptchaSettingsController {
     }
 
     @Patch('backgrounds/order')
+    @Permissions('captcha:background')
     @ApiOperation({ summary: '更新背景图排序' })
     async updateBackgroundOrder(
         @Body()
@@ -254,6 +266,7 @@ export class CaptchaSettingsController {
     }
 
     @Post('backgrounds/upload')
+    @Permissions('captcha:background')
     @ApiOperation({ summary: '上传验证码背景图' })
     @ApiConsumes('multipart/form-data')
     @UseInterceptors(FilesInterceptor('files', 10))
@@ -357,6 +370,7 @@ export class CaptchaSettingsController {
     }
 
     @Post('backgrounds/sync-folder')
+    @Permissions('captcha:sync')
     @ApiOperation({
         summary: '从文件夹同步图片到背景图',
     })

@@ -13,6 +13,8 @@ import {
     ApiBearerAuth,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { PermissionGuard } from '../../../common/guards/permission.guard';
+import { Permissions } from '../../../common/decorators/permissions.decorator';
 import {
     CurrentUser,
     UserPayload,
@@ -21,9 +23,17 @@ import { AIService } from '../services/ai.service';
 import { GenerateContentDto } from '../dto/generate-content.dto';
 import { Message } from '../interfaces/ai-service.interface';
 
+/**
+ * AI 内容生成
+ *
+ * 2026-10-12 补锁：此前类级只挂 JwtAuthGuard、`POST /ai/generate` 无任何权限码，
+ * 任意登录用户都可无限制消耗付费大模型额度。
+ * 现要求 ai:use（该码在迁移 20261012120000 中已授予现有角色）。
+ */
 @ApiTags('ai')
 @Controller('ai')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
+@Permissions('ai:use')
 @ApiBearerAuth()
 export class AIController {
     constructor(private readonly aiService: AIService) {}

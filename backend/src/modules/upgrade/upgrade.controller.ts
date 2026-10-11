@@ -10,6 +10,8 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { PermissionGuard } from '../../common/guards/permission.guard';
+import { SuperAdminOnly } from '../../common/decorators/super-admin-only.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UpgradeService } from './upgrade.service';
 import { VersionService } from './services/version.service';
@@ -21,7 +23,8 @@ import { Request } from 'express';
 
 @ApiTags('系统升级')
 @Controller('upgrade')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
+@SuperAdminOnly()
 @ApiBearerAuth()
 export class UpgradeController {
   constructor(

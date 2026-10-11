@@ -39,6 +39,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useFieldPermissions } from "@/lib/hooks/useFieldPermissions";
 
 interface BackupConfig {
   enabled: boolean;
@@ -94,6 +95,8 @@ function formatDate(dateStr: string): string {
 }
 
 export default function BackupPage() {
+  // 字段级权限（模块 backup）：备份记录的 11 个字段（全部只读展示）
+  const fp = useFieldPermissions("backup");
   const [config, setConfig] = useState<BackupConfig | null>(null);
   const [logs, setLogs] = useState<BackupLog[]>([]);
   const [stats, setStats] = useState<BackupStats | null>(null);
@@ -481,33 +484,42 @@ export default function BackupPage() {
                       className="flex items-center justify-between p-4 border rounded-lg"
                     >
                       <div className="flex items-center gap-4">
-                        {log.status === "running" ? (
-                          <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                        ) : log.status === "success" ? (
-                          <CheckCircle2 className="w-5 h-5 text-green-500" />
-                        ) : (
-                          <XCircle className="w-5 h-5 text-red-500" />
-                        )}
+                        {fp.canView("status") &&
+                          (log.status === "running" ? (
+                            <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                          ) : log.status === "success" ? (
+                            <CheckCircle2 className="w-5 h-5 text-green-500" />
+                          ) : (
+                            <XCircle className="w-5 h-5 text-red-500" />
+                          ))}
                         <div>
-                          <div className="font-medium">
-                            {log.backupType === "FULL"
-                              ? "完整备份"
-                              : log.backupType === "DATABASE"
-                              ? "数据库备份"
-                              : "文件备份"}
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            {formatDate(log.startedAt)}
-                            {log.triggerType === "SCHEDULED" && (
-                              <Badge variant="outline" className="ml-2">
-                                自动
-                              </Badge>
-                            )}
-                          </div>
+                          {fp.canView("backupType") && (
+                            <div className="font-medium">
+                              {log.backupType === "FULL"
+                                ? "完整备份"
+                                : log.backupType === "DATABASE"
+                                ? "数据库备份"
+                                : "文件备份"}
+                            </div>
+                          )}
+                          {(fp.canView("startedAt") ||
+                            fp.canView("triggerType")) && (
+                            <div className="text-sm text-muted-foreground">
+                              {fp.canView("startedAt")
+                                ? formatDate(log.startedAt)
+                                : ""}
+                              {fp.canView("triggerType") &&
+                                log.triggerType === "SCHEDULED" && (
+                                  <Badge variant="outline" className="ml-2">
+                                    自动
+                                  </Badge>
+                                )}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {log.fileSize && (
+                        {fp.canView("fileSize") && log.fileSize && (
                           <span className="text-sm text-muted-foreground">
                             {formatBytes(Number(log.fileSize))}
                           </span>

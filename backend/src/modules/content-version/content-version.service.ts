@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
 import { SaveVersionDto } from './dto/save-version.dto';
 import { QueryVersionsDto } from './dto/query-versions.dto';
@@ -191,14 +191,30 @@ export class ContentVersionService {
 
     /**
      * 删除版本（软删除）
+     *
+     * 注意：必须同时匹配 contentType / contentId，
+     * 否则 `DELETE /content-versions/x/y/<任意 versionId>` 可以删掉别的对象的版本历史。
+     * 不匹配时按「不存在」处理（找一次再更新），避免泄露其它记录的存在性。
      */
     async deleteVersion(
         contentType: string,
         contentId: string,
         versionId: string,
     ) {
+        const existing = await this.prisma.contentVersion.findFirst({
+            where: {
+                id: versionId,
+                contentType,
+                contentId,
+                deletedAt: null,
+            },
+            select: { id: true },
+        });
+        if (!existing) {
+            throw new NotFoundException('版本不存在');
+        }
         return this.prisma.contentVersion.update({
-            where: { id: versionId },
+            where: { id: existing.id },
             data: { deletedAt: new Date() },
         });
     }

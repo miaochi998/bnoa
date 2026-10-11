@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../../config/prisma.module';
 import { StorageModule } from '../storage/storage.module';
 import { AuthModule } from '../auth/auth.module';
+import { RoleModule } from '../role/role.module';
 import { FileService } from './file.service';
 import { FileController } from './file.controller';
 import { FolderService } from './folder.service';
@@ -21,7 +22,7 @@ import { PublicFileController } from './public-file.controller';
  * 提供文件、文件夹、分享、上传等管理功能
  */
 @Module({
-  imports: [ConfigModule, PrismaModule, StorageModule, AuthModule],
+  imports: [ConfigModule, PrismaModule, StorageModule, AuthModule, RoleModule],
   providers: [
     FileService,
     FolderService,

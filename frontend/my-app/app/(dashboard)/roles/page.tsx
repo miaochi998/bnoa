@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { RoleFormDialog } from '@/components/roles/RoleFormDialog';
 import { apiClient } from '@/lib/api';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import { Role } from '@/types/role';
 import {
   Plus,
@@ -34,6 +35,7 @@ import {
 import { PermissionGate } from '@/components/PermissionGate';
 
 export default function RolesPage() {
+  const fp = useFieldPermissions('role');
   const router = useRouter();
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
@@ -162,7 +164,7 @@ export default function RolesPage() {
                       </code>
                     </TableCell>
                     <TableCell className="text-muted-foreground max-w-xs truncate">
-                      {role.description || '-'}
+                      {fp.canView('description') ? (role.description || '-') : '******'}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {formatDate(role.createdAt)}

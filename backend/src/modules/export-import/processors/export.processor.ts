@@ -36,7 +36,7 @@ export class ExportProcessor extends WorkerHost {
             const adapter =
                 this.exportService.getAdapter(module);
             await this.exportService.executeExport(
-                taskId, adapter, format, params,
+                taskId, adapter, format, params, userId,
             );
 
             // 发送通知

@@ -852,7 +852,9 @@ export class FolderService {
         ...(isSuperAdmin
           ? {}
           : {
-              shares: {
+              // 关系名是 folderShares（此前误写成 shares，导致 /folders/my 与
+              // 文件中心「个人文件夹」视图 500）
+              folderShares: {
                 some: {
                   ...(roleIds.length > 0
                     ? { sharedWithRoleId: { in: roleIds } }

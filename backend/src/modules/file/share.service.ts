@@ -300,9 +300,15 @@ export class ShareService {
 
     /**
      * 获取分享文件内容（代理下载）
+     *
+     * 安全约束（原先缺失，导致「分享密码」可被绕过）：
+     *   1. 设置了访问密码的分享，必须携带正确密码才能取内容；
+     *   2. shareAccess 为 VIEW（仅查看）时，禁止以 download 方式取原件。
      */
     async getFileBuffer(
         shareCode: string,
+        password?: string,
+        isDownload = false,
     ): Promise<{
         buffer: Buffer;
         fileName: string;
@@ -319,6 +325,28 @@ export class ShareService {
 
         if (file.shareExpireAt && new Date() > file.shareExpireAt) {
             throw new ForbiddenException('分享已过期');
+        }
+
+        // 校验访问密码（与 accessShare 同口径）
+        if (file.sharePassword) {
+            if (!password) {
+                throw new BadRequestException('需要输入访问密码');
+            }
+            const valid = await CryptoUtil.comparePassword(
+                password,
+                file.sharePassword,
+            );
+            if (!valid) {
+                throw new ForbiddenException('密码错误');
+            }
+        }
+
+        // 「仅查看」的分享不允许下载原件
+        if (
+            isDownload &&
+            (file.shareAccess || ShareAccess.DOWNLOAD) === ShareAccess.VIEW
+        ) {
+            throw new ForbiddenException('该分享仅允许在线查看，不允许下载');
         }
 
         if (!file.path) {

@@ -13,6 +13,7 @@ import { ScanReviewService } from './security/scan-review.service';
 import { UploadSecurityController } from './security/upload-security.controller';
 import { SecurityCenterController } from './security/security-center.controller';
 import { ConfigModule as SysConfigModule } from '../config/config.module';
+import { FieldPermissionModule } from '../role/field-permission.module';
 
 /**
  * 上传服务模块
@@ -20,7 +21,7 @@ import { ConfigModule as SysConfigModule } from '../config/config.module';
  * 安全功能：磁盘空间检查、上限保护、双开关控制、安全日志、文件隔离、病毒扫描
  */
 @Module({
-  imports: [ConfigModule, PrismaModule, StorageModule, ImageModule, AuthModule, SysConfigModule],
+  imports: [ConfigModule, PrismaModule, StorageModule, ImageModule, AuthModule, SysConfigModule, FieldPermissionModule],
   providers: [UploadService, UploadSecurityService, VirusScanService, VirusScannerService, ScanReviewService],
   controllers: [UploadController, UploadSecurityController, SecurityCenterController],
   exports: [UploadService, UploadSecurityService, VirusScanService, VirusScannerService, ScanReviewService],

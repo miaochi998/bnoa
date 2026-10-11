@@ -5,7 +5,7 @@ export interface AuditLog {
   targetType?: string;
   targetId?: string;
   description?: string;
-  ipAddress?: string;
+  ip?: string;
   userAgent?: string;
   status: 'SUCCESS' | 'FAILURE';
   errorMessage?: string;
@@ -30,9 +30,12 @@ export interface AuditLogListResponse {
 }
 
 export interface AuditLogFilter {
+  /** 关键字：模糊匹配操作描述与操作人 */
+  keyword?: string;
   module?: string;
   action?: string;
-  status?: 'SUCCESS' | 'FAILURE';
+  /** 与后端 AuditStatus 保持一致（后端为 SUCCESS / FAIL） */
+  status?: 'SUCCESS' | 'FAIL';
   userId?: string;
   startDate?: string;
   endDate?: string;

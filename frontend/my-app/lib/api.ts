@@ -55,18 +55,35 @@ export function getDefaultAvatarUrl(): string {
 }
 
 /**
- * 构建文件预览代理 URL（公共访问，无需认证）
- * 由前端用 API_BASE_URL 拼出，避免依赖后端 SERVER_BASE_URL（生产可能被配成 localhost 导致图片无法加载）。
+ * 取当前登录令牌，用于拼进 `<img src>` 这类**浏览器不会携带 Authorization 头**的资源 URL。
+ * 后端 /public/files/* 已收紧为「必须校验归属」，无令牌会被拒（403）。
  */
-export function getFilePreviewUrl(fileId: string): string {
-    return `${API_BASE_URL}/public/files/${fileId}/preview`;
+function getUrlAccessToken(): string {
+    if (typeof window === 'undefined') return '';
+    try {
+        return localStorage.getItem('accessToken') || '';
+    } catch {
+        return '';
+    }
 }
 
 /**
- * 构建文件缩略图代理 URL（公共访问，无需认证）
+ * 构建文件预览代理 URL（需登录；令牌放在 query 里，由前端用 API_BASE_URL 拼出，
+ * 避免依赖后端 SERVER_BASE_URL（生产可能被配成 localhost 导致图片无法加载）。
+ */
+export function getFilePreviewUrl(fileId: string): string {
+    const token = getUrlAccessToken();
+    const suffix = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${API_BASE_URL}/public/files/${fileId}/preview${suffix}`;
+}
+
+/**
+ * 构建文件缩略图代理 URL（需登录；令牌同 getFilePreviewUrl）
  */
 export function getFileThumbnailUrl(fileId: string): string {
-    return `${API_BASE_URL}/public/files/${fileId}/thumbnail`;
+    const token = getUrlAccessToken();
+    const suffix = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${API_BASE_URL}/public/files/${fileId}/thumbnail${suffix}`;
 }
 
 /**
@@ -467,16 +484,7 @@ class ApiClient {
     });
   }
 
-  /**
-   * 重置用户密码
-   */
-  async resetUserPassword(id: string, newPassword: string): Promise<void> {
-    await this.request(`/users/${id}/reset-password`, {
-      method: 'POST',
-      body: JSON.stringify({ newPassword }),
-    });
-  }
-
+  
   // ==================== 角色管理接口 ====================
 
   /**
@@ -562,6 +570,102 @@ class ApiClient {
    */
   async getRolePermissions(roleId: string): Promise<Permission[]> {
     const response = await this.request<Permission[]>(`/roles/${roleId}/permissions`);
+    return response.data;
+  }
+
+  // ==================== 字段级权限接口 ====================
+
+  /**
+   * 获取字段权限注册表（已登记字段权限的模块、信息组与字段）
+   */
+  async getFieldPermissionRegistry(): Promise<any[]> {
+    const response = await this.request<any[]>('/roles/field-permissions/registry');
+    return response.data;
+  }
+
+  /**
+   * 读取某角色在某模块的字段权限配置（含默认值回显）
+   */
+  async getRoleFieldPermissions(roleId: string, module: string): Promise<any> {
+    const response = await this.request<any>(
+      `/roles/${roleId}/field-permissions?module=${encodeURIComponent(module)}`,
+    );
+    return response.data;
+  }
+
+  /**
+   * 保存某角色在某模块的字段权限配置（整模块覆盖）
+   */
+  async saveRoleFieldPermissions(
+    roleId: string,
+    module: string,
+    items: { field: string; canView: boolean; canEdit: boolean }[],
+    dataScope?: string,
+  ): Promise<any> {
+    const response = await this.request<any>(
+      `/roles/${roleId}/field-permissions`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ module, items, dataScope }),
+      },
+    );
+    return response.data;
+  }
+
+  /**
+   * 立即刷新服务端权限缓存（仅超级管理员）
+   * 正常情况下保存角色权限会自动清缓存，此方法用于兜底
+   */
+  async refreshPermissionCache(): Promise<{
+    cleared: number;
+    remaining: number;
+  }> {
+    const response = await this.request<any>('/permissions/refresh-cache', {
+      method: 'POST',
+    });
+    return response.data;
+  }
+
+  /**
+   * 角色数据范围：读取各模块配置
+   */
+  async getRoleDataScopes(roleId: string): Promise<{
+    items: { module: string; label: string; value: string }[];
+    options: { value: string; label: string }[];
+  }> {
+    const response = await this.request<any>(`/roles/${roleId}/data-scopes`);
+    return response.data;
+  }
+
+  /**
+   * 角色数据范围：保存单个模块
+   */
+  async saveRoleDataScope(
+    roleId: string,
+    module: string,
+    dataScope: string,
+  ): Promise<any> {
+    const response = await this.request<any>(
+      `/roles/${roleId}/data-scopes`,
+      { method: 'PUT', body: JSON.stringify({ module, dataScope }) },
+    );
+    return response.data;
+  }
+
+  /**
+   * 获取当前登录用户在某模块的字段权限（前端渲染列表/表单用）
+   */
+  async getMyFieldPermissions(module: string): Promise<{
+    module: string;
+    isSuperAdmin: boolean;
+    canView: string[];
+    canEdit: string[];
+    /** 数据范围（ALL / OWN_SHOP / OWN_CREATED），用于列表页提示"仅显示你负责的数据" */
+    dataScope?: string;
+  }> {
+    const response = await this.request<any>(
+      `/field-permissions/me?module=${encodeURIComponent(module)}`,
+    );
     return response.data;
   }
 
@@ -1386,6 +1490,7 @@ class ApiClient {
     const params = new URLSearchParams();
     params.append('page', pageInput.page.toString());
     params.append('pageSize', pageInput.pageSize.toString());
+    if (filter.keyword) params.append('keyword', filter.keyword);
     if (filter.module) params.append('module', filter.module);
     if (filter.action) params.append('action', filter.action);
     if (filter.status) params.append('status', filter.status);
@@ -2327,9 +2432,12 @@ class ApiClient {
   /**
    * 获取平台列表
    */
-  async getPlatforms(params?: { keyword?: string }): Promise<{ list: any[]; pagination: { page: number; pageSize: number; total: number; totalPages: number } }> {
-    const query = params?.keyword ? `?keyword=${encodeURIComponent(params.keyword)}` : '';
-    const response = await this.request<any>(`/business/platforms${query}`);
+  async getPlatforms(params?: { keyword?: string; pageSize?: number }): Promise<{ list: any[]; pagination: { page: number; pageSize: number; total: number; totalPages: number } }> {
+    // 平台是基础数据，页面一次性展示全部；不传 pageSize 时后端默认只返回 10 条会导致列表显示不全
+    const qs = new URLSearchParams();
+    if (params?.keyword) qs.append('keyword', params.keyword);
+    qs.append('pageSize', String(params?.pageSize ?? 500));
+    const response = await this.request<any>(`/business/platforms?${qs.toString()}`);
     return response.data;
   }
 
@@ -3763,13 +3871,6 @@ class ApiClient {
     return r.data;
   }
 
-  async transferTalents(data: {
-    talentIds: string[]; toUserId: string; remark?: string;
-  }): Promise<void> {
-    await this.request('/business/talents/transfer', {
-      method: 'POST', body: JSON.stringify(data),
-    });
-  }
 
   async setTalentFlag(talentId: string, data: { flagColor: string }): Promise<any> {
     const r = await this.request<any>(`/business/talents/${talentId}/flag`, {

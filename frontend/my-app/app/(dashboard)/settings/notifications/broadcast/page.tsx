@@ -1,6 +1,7 @@
 'use client'
 
 import { getApiBaseUrl } from '@/lib/config';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -111,6 +112,7 @@ const NOTIFICATION_TYPES = [
 ];
 
 export default function BroadcastPage() {
+    const fp = useFieldPermissions('notification');
     const router = useRouter();
     const [type, setType] = useState('system_announce');
     const [priority, setPriority] = useState('NORMAL');
@@ -198,18 +200,19 @@ export default function BroadcastPage() {
     };
 
     const handleSubmit = async () => {
-        if (!title.trim()) {
+        if (fp.canEdit('title') && !title.trim()) {
             alert('请输入标题');
             return;
         }
         setSubmitting(true);
         try {
             const html = tiptapJsonToHtml(content);
+            // 只提交「可编辑」字段
             const body: any = {
-                type, priority, title,
-                content: html,
-                targetType,
+                type, priority, targetType,
             };
+            if (fp.canEdit('title')) body.title = title;
+            if (fp.canEdit('content')) body.content = html;
             if (actionUrl) body.actionUrl = actionUrl;
             if (targetType === 'role') body.targetRoles = targetRoles;
             if (targetType === 'users') body.targetUserIds = targetUserIds;

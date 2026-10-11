@@ -12,6 +12,7 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { apiClient } from '@/lib/api';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface Supplier {
     id: string;
@@ -31,6 +32,7 @@ interface SupplierFormProps {
 }
 
 export function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
+    const fp = useFieldPermissions('supplier');
     const [formData, setFormData] = useState({
         name: supplier?.name || '',
         contact: supplier?.contact || '',
@@ -85,6 +87,7 @@ export function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProp
             )}
 
             {/* 供应商名称 */}
+            {fp.canView('name') && (
             <div className="space-y-2">
                 <Label className="text-white">
                     供应商名称 <span className="text-red-400">*</span>
@@ -92,48 +95,61 @@ export function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProp
                 <Input
                     placeholder="请输入供应商名称"
                     value={formData.name}
+                    disabled={!fp.canEdit('name')}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     className="bg-[#1e1e1e] border-[#1e1e1e] text-white placeholder:text-[#8e8e8e]"
                 />
             </div>
+            )}
 
             {/* 联系人 */}
+            {fp.canView('contact') && (
             <div className="space-y-2">
                 <Label className="text-white">联系人</Label>
                 <Input
                     placeholder="请输入联系人姓名"
                     value={formData.contact}
+                    disabled={!fp.canEdit('contact')}
                     onChange={(e) => setFormData({ ...formData, contact: e.target.value })}
                     className="bg-[#1e1e1e] border-[#1e1e1e] text-white placeholder:text-[#8e8e8e]"
                 />
             </div>
+            )}
 
             {/* 联系电话 */}
+            {fp.canView('phone') && (
             <div className="space-y-2">
                 <Label className="text-white">联系电话</Label>
                 <Input
                     placeholder="请输入联系电话"
                     value={formData.phone}
+                    disabled={!fp.canEdit('phone')}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                     className="bg-[#1e1e1e] border-[#1e1e1e] text-white placeholder:text-[#8e8e8e]"
                 />
             </div>
+            )}
 
             {/* 联系地址 */}
+            {fp.canView('address') && (
             <div className="space-y-2">
                 <Label className="text-white">联系地址</Label>
                 <Input
                     placeholder="请输入联系地址"
                     value={formData.address}
+                    disabled={!fp.canEdit('address')}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                     className="bg-[#1e1e1e] border-[#1e1e1e] text-white placeholder:text-[#8e8e8e]"
                 />
             </div>
+            )}
 
             {/* 状态 */}
+            {fp.canView('status') && (
             <div className="space-y-2">
                 <Label className="text-white">状态</Label>
                 <Select
+                    disabled={!fp.canEdit('status')}
                     value={formData.status}
                     onValueChange={(value: 'ACTIVE' | 'INACTIVE') => setFormData({ ...formData, status: value })}
                 >
@@ -146,17 +162,21 @@ export function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProp
                     </SelectContent>
                 </Select>
             </div>
+            )}
 
             {/* 备注 */}
+            {fp.canView('remark') && (
             <div className="space-y-2">
                 <Label className="text-white">备注</Label>
                 <Input
                     placeholder="请输入备注"
                     value={formData.remark}
+                    disabled={!fp.canEdit('remark')}
                     onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
                     className="bg-[#1e1e1e] border-[#1e1e1e] text-white placeholder:text-[#8e8e8e]"
                 />
             </div>
+            )}
 
             {/* 按钮 */}
             <div className="flex justify-end gap-3 pt-4">

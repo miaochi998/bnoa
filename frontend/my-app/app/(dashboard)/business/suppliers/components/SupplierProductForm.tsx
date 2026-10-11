@@ -25,6 +25,8 @@ import { DictSelect } from '@/components/shared/DictSelect';
 import { DictTag } from '@/components/shared/DictTag';
 import { EditableCell } from '@/components/shared/EditableCell';
 import { PermissionGate } from '@/components/PermissionGate';
+import { usePermissionStore } from '@/lib/stores/permission-store';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface Supplier {
     id: string;
@@ -57,6 +59,9 @@ interface SupplierProductFormProps {
 }
 
 export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierProductFormProps) {
+    const fp = useFieldPermissions('supplier');
+    const { hasPermission } = usePermissionStore();
+    const canManage = hasPermission('supplier:product-manage');
     const [supplierProducts, setSupplierProducts] = useState<SupplierProduct[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
@@ -74,7 +79,9 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
     // 加载数据
     useEffect(() => {
         loadSupplierProducts();
-        loadProducts();
+        // 只有具备「管理关联产品」权限时才需要产品下拉，避免无权限时产生 403
+        if (hasPermission('supplier:product-manage')) loadProducts();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [supplier.id]);
 
     const loadSupplierProducts = async () => {
@@ -227,14 +234,16 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
         <div className="space-y-4">
             {/* 添加按钮 */}
             {!showAddForm && (
-                <Button
-                    onClick={() => setShowAddForm(true)}
-                    className="bg-[#409fff] hover:bg-[#409fff]/90 text-white"
-                    disabled={products.length === 0}
-                >
-                    <Plus className="w-4 h-4 mr-2" />
-                    添加产品关联
-                </Button>
+                <PermissionGate permission="supplier:product-manage">
+                    <Button
+                        onClick={() => setShowAddForm(true)}
+                        className="bg-[#409fff] hover:bg-[#409fff]/90 text-white"
+                        disabled={products.length === 0}
+                    >
+                        <Plus className="w-4 h-4 mr-2" />
+                        添加产品关联
+                    </Button>
+                </PermissionGate>
             )}
 
             {/* 添加表单 */}
@@ -328,13 +337,15 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
                 <Table>
                     <TableHeader>
                         <TableRow className="border-[#1e1e1e] hover:bg-transparent">
-                            <TableHead className="text-[#8e8e8e]">产品编码</TableHead>
-                            <TableHead className="text-[#8e8e8e]">产品名称</TableHead>
-                            <TableHead className="text-[#8e8e8e]">款式</TableHead>
-                            <TableHead className="text-[#8e8e8e]">供货价格</TableHead>
-                            <TableHead className="text-[#8e8e8e]">单位</TableHead>
-                            <TableHead className="text-[#8e8e8e]">状态</TableHead>
-                            <TableHead className="text-[#8e8e8e] text-right">操作</TableHead>
+                            {fp.canView('product.code') && <TableHead className="text-[#8e8e8e]">产品编码</TableHead>}
+                            {fp.canView('product.name') && <TableHead className="text-[#8e8e8e]">产品名称</TableHead>}
+                            {fp.canView('product.styleName') && <TableHead className="text-[#8e8e8e]">款式</TableHead>}
+                            {fp.canView('product.supplyPrice') && <TableHead className="text-[#8e8e8e]">供货价格</TableHead>}
+                            {fp.canView('product.priceUnit') && <TableHead className="text-[#8e8e8e]">单位</TableHead>}
+                            {fp.canView('product.status') && <TableHead className="text-[#8e8e8e]">状态</TableHead>}
+                            {canManage && (
+                                <TableHead className="text-[#8e8e8e] text-right">操作</TableHead>
+                            )}
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -356,26 +367,38 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
                         ) : (
                             supplierProducts.map((sp) => (
                                 <TableRow key={sp.id} className="border-[#1e1e1e]">
-                                    <TableCell className="text-white">{sp.product.code}</TableCell>
-                                    <TableCell className="text-white">{sp.product.name}</TableCell>
+                                    {fp.canView('product.code') && (
+                                        <TableCell className="text-white">{sp.product.code}</TableCell>
+                                    )}
+                                    {fp.canView('product.name') && (
+                                        <TableCell className="text-white">{sp.product.name}</TableCell>
+                                    )}
+                                    {fp.canView('product.styleName') && (
                                     <TableCell className="text-white">
                                         <PermissionGate
-                                            permission="supplier:product"
+                                            permission="supplier:product-manage"
                                             fallback={<span>{sp.styleName || '-'}</span>}
                                         >
+                                            {fp.canEdit('product.styleName') ? (
                                             <EditableCell
                                                 value={sp.styleName}
                                                 onSave={(newValue) => handleUpdateField(sp.id, 'styleName', newValue)}
                                                 placeholder="款式"
                                                 maxLength={100}
                                             />
+                                            ) : (
+                                                <span>{sp.styleName || '-'}</span>
+                                            )}
                                         </PermissionGate>
                                     </TableCell>
+                                    )}
+                                    {fp.canView('product.supplyPrice') && (
                                     <TableCell className="text-white">
                                         <PermissionGate
-                                            permission="supplier:product"
+                                            permission="supplier:product-manage"
                                             fallback={<span>¥{parseFloat(sp.supplyPrice as any).toFixed(3)}</span>}
                                         >
+                                            {fp.canEdit('product.supplyPrice') ? (
                                             <EditableCell
                                                 value={sp.supplyPrice}
                                                 onSave={(newValue) => handleUpdateField(sp.id, 'supplyPrice', newValue)}
@@ -383,8 +406,13 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
                                                 label="供货价格"
                                                 placeholder="供货价格"
                                             />
+                                            ) : (
+                                                <span>¥{parseFloat(sp.supplyPrice as any).toFixed(3)}</span>
+                                            )}
                                         </PermissionGate>
                                     </TableCell>
+                                    )}
+                                    {fp.canView('product.priceUnit') && (
                                     <TableCell>
                                         {sp.priceUnit === 'PER_CUSTOM' && sp.priceUnitCustom ? (
                                             <span className="px-2 py-1 rounded text-xs bg-gray-500/20 text-gray-300">
@@ -394,31 +422,38 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
                                             <DictTag typeCode="price_unit" value={sp.priceUnit} />
                                         )}
                                     </TableCell>
+                                    )}
+                                    {fp.canView('product.status') && (
                                     <TableCell>
                                         <span className={`px-2 py-1 rounded text-xs ${getStatusClass(sp.status)}`}>
                                             {getStatusText(sp.status)}
                                         </span>
                                     </TableCell>
+                                    )}
+                                    {canManage && (
                                     <TableCell className="text-right">
                                         <div className="flex justify-end gap-1">
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                onClick={() => handleEdit(sp)}
-                                                className="h-8 w-8 text-[#8e8e8e] hover:text-white hover:bg-[#363636]"
-                                            >
-                                                <Pencil className="w-4 h-4" />
-                                            </Button>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                onClick={() => handleDelete(sp.id, sp.product.name)}
-                                                className="h-8 w-8 text-[#8e8e8e] hover:text-red-400 hover:bg-red-500/10"
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                            </Button>
+                                            <PermissionGate permission="supplier:product-manage">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    onClick={() => handleEdit(sp)}
+                                                    className="h-8 w-8 text-[#8e8e8e] hover:text-white hover:bg-[#363636]"
+                                                >
+                                                    <Pencil className="w-4 h-4" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    onClick={() => handleDelete(sp.id, sp.product.name)}
+                                                    className="h-8 w-8 text-[#8e8e8e] hover:text-red-400 hover:bg-red-500/10"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </PermissionGate>
                                         </div>
                                     </TableCell>
+                                    )}
                                 </TableRow>
                             ))
                         )}

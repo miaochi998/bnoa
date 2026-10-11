@@ -50,7 +50,7 @@ export class ExportImportController {
 
     /** 获取可导出模块列表 */
     @Get('modules')
-    @Permissions('export-import:export')
+    @Permissions('export-import:manage')
     @ApiOperation({ summary: '获取可导出模块列表' })
     getModules() {
         return {
@@ -86,7 +86,7 @@ export class ExportImportController {
 
     /** 获取任务列表 */
     @Get('tasks')
-    @Permissions('export-import:task-list')
+    @Permissions('export-import:manage')
     @ApiOperation({ summary: '获取任务列表' })
     async getTasks(
         @Query() query: QueryTaskDto,
@@ -109,7 +109,7 @@ export class ExportImportController {
 
     /** 获取任务详情 */
     @Get('tasks/:id')
-    @Permissions('export-import:task-list')
+    @Permissions('export-import:manage')
     @ApiOperation({ summary: '获取任务详情' })
     async getTask(@Param('id') id: string) {
         const task = await this.taskService.getTask(id);

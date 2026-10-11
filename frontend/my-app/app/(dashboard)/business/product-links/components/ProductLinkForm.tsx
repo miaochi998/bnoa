@@ -21,6 +21,7 @@ import {
 import { DictSelect } from '@/components/shared/DictSelect';
 import { Loader2 } from 'lucide-react';
 import { apiClient } from '@/lib/api';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface Shop {
     id: string;
@@ -50,6 +51,7 @@ export function ProductLinkForm({
     editData,
     onSuccess,
 }: ProductLinkFormProps) {
+    const fp = useFieldPermissions('product-link');
     const [form, setForm] = useState(defaultForm);
     const [shops, setShops] = useState<Shop[]>([]);
     const [saving, setSaving] = useState(false);
@@ -85,23 +87,36 @@ export function ProductLinkForm({
     };
 
     const handleSave = async () => {
-        if (!form.name.trim()) {
+        // 新建必须有链接名称/所属店铺的编辑权
+        if (!editData && (!fp.canEdit('name') || !fp.canEdit('shopId'))) {
+            alert('没有「链接名称」或「所属店铺」的编辑权限，无法新建链接');
+            return;
+        }
+        if (fp.canEdit('name') && !form.name.trim()) {
             alert('请输入链接名称');
             return;
         }
-        if (!form.shopId) {
+        if (fp.canEdit('shopId') && !form.shopId) {
             alert('请选择所属店铺');
             return;
         }
+
+        // 只提交「可编辑」字段：被配成只读/隐藏的字段不发送，避免误改或 400
+        const payload: Record<string, any> = {};
+        if (fp.canEdit('name')) payload.name = form.name;
+        if (fp.canEdit('shopId')) payload.shopId = form.shopId;
+        if (fp.canEdit('status')) payload.status = form.status;
+        if (fp.canEdit('platformUrl') && form.platformUrl) payload.platformUrl = form.platformUrl;
+        if (fp.canEdit('platformItemId') && form.platformItemId) payload.platformItemId = form.platformItemId;
+        if (fp.canEdit('remark') && form.remark) payload.remark = form.remark;
+
+        if (Object.keys(payload).length === 0) {
+            alert('你没有链接字段的编辑权限');
+            return;
+        }
+
         try {
             setSaving(true);
-            const payload: any = { ...form };
-            if (!payload.platformUrl)
-                delete payload.platformUrl;
-            if (!payload.platformItemId)
-                delete payload.platformItemId;
-            if (!payload.remark)
-                delete payload.remark;
 
             if (editData) {
                 await apiClient.updateProductLink(
@@ -132,6 +147,7 @@ export function ProductLinkForm({
                     </DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
+                    {fp.canView('name') && (
                     <div className="space-y-2">
                         <Label>
                             链接名称/商品标题 *
@@ -145,9 +161,13 @@ export function ProductLinkForm({
                                 })
                             }
                             placeholder="如：爆款保温杯500ml"
+                            disabled={!fp.canEdit('name')}
+                            className="disabled:opacity-50"
                         />
                     </div>
+                    )}
                     <div className="grid grid-cols-2 gap-4">
+                        {fp.canView('shopId') && (
                         <div className="space-y-2">
                             <Label>所属店铺 *</Label>
                             <Select
@@ -158,6 +178,7 @@ export function ProductLinkForm({
                                         shopId: v,
                                     })
                                 }
+                                disabled={!fp.canEdit('shopId')}
                             >
                                 <SelectTrigger>
                                     <SelectValue
@@ -179,6 +200,8 @@ export function ProductLinkForm({
                                 </SelectContent>
                             </Select>
                         </div>
+                        )}
+                        {fp.canView('status') && (
                         <div className="space-y-2">
                             <Label>链接状态</Label>
                             <DictSelect
@@ -190,10 +213,13 @@ export function ProductLinkForm({
                                         status: v,
                                     })
                                 }
+                                disabled={!fp.canEdit('status')}
                             />
                         </div>
+                        )}
                     </div>
                     <div className="grid grid-cols-2 gap-4">
+                        {fp.canView('platformItemId') && (
                         <div className="space-y-2">
                             <Label>平台商品ID</Label>
                             <Input
@@ -209,8 +235,12 @@ export function ProductLinkForm({
                                     })
                                 }
                                 placeholder="平台商品编号"
+                                disabled={!fp.canEdit('platformItemId')}
+                                className="disabled:opacity-50"
                             />
                         </div>
+                        )}
+                        {fp.canView('platformUrl') && (
                         <div className="space-y-2">
                             <Label>平台链接URL</Label>
                             <Input
@@ -224,9 +254,13 @@ export function ProductLinkForm({
                                     })
                                 }
                                 placeholder="https://..."
+                                disabled={!fp.canEdit('platformUrl')}
+                                className="disabled:opacity-50"
                             />
                         </div>
+                        )}
                     </div>
+                    {fp.canView('remark') && (
                     <div className="space-y-2">
                         <Label>备注</Label>
                         <Input
@@ -239,8 +273,11 @@ export function ProductLinkForm({
                                 })
                             }
                             placeholder="其他说明"
+                            disabled={!fp.canEdit('remark')}
+                            className="disabled:opacity-50"
                         />
                     </div>
+                    )}
                 </div>
                 <DialogFooter>
                     <Button

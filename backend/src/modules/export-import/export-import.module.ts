@@ -3,6 +3,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { PrismaModule } from '../../config/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationModule } from '../notification/notification.module';
+import { FieldPermissionModule } from '../role/field-permission.module';
 import { ExportImportController } from './export-import.controller';
 import { ExportService } from './services/export.service';
 import { ImportService } from './services/import.service';
@@ -23,6 +24,8 @@ import { ConfigAdapter } from './adapters/config.adapter';
         PrismaModule,
         AuthModule,
         NotificationModule,
+        // 导出需按「字段级权限」过滤列（只依赖 Prisma，不会造成循环依赖）
+        FieldPermissionModule,
         BullModule.registerQueue({ name: 'export' }),
     ],
     controllers: [ExportImportController],

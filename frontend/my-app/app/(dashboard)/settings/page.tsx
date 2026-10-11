@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { apiClient, getDefaultAvatarUrl } from '@/lib/api';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import { SystemConfig } from '@/types/config';
 import { RealFolder } from '@/types/file';
 import {
@@ -125,6 +126,7 @@ function ConfigItem({ config, value, onChange }: ConfigItemProps) {
 }
 
 export default function SettingsPage() {
+  const fp = useFieldPermissions('system');
   const [configs, setConfigs] = useState<SystemConfig[]>([]);
   const [editedValues, setEditedValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -214,11 +216,16 @@ export default function SettingsPage() {
   // 根据 config key 获取当前编辑值
   const getValueByKey = (key: string) => {
     const config = getConfigByKey(key);
-    return config ? (editedValues[config.id] ?? config.value) : '';
+    if (!config) return '';
+    // 无「配置值」查看权限时只显示占位，避免泄露与误写
+    if (!fp.canView('value')) return '******';
+    return editedValues[config.id] ?? config.value;
   };
 
   // 根据 config key 设置值
   const setValueByKey = (key: string, value: string) => {
+    // 无「配置值」编辑权限时忽略输入
+    if (!fp.canEdit('value')) return;
     const config = getConfigByKey(key);
     if (config) {
       handleValueChange(config.id, value);

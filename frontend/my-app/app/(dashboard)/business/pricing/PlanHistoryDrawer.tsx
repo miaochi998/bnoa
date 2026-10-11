@@ -9,6 +9,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { PlanData } from './types';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface Props {
     open: boolean;
@@ -21,6 +22,7 @@ export function PlanHistoryDrawer({
     open, onOpenChange,
     currentLinkId, onLoadPlan,
 }: Props) {
+    const fp = useFieldPermissions('pricing');
     const [plans, setPlans] =
         useState<PlanData[]>([]);
     const [loading, setLoading] = useState(false);
@@ -109,10 +111,10 @@ export function PlanHistoryDrawer({
                             >
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm text-white font-medium truncate">
-                                        {plan.name}
+                                        {fp.canView('name') ? (plan.name ?? '') : '******'}
                                     </p>
                                     <div className="flex items-center gap-2 mt-1 text-xs text-[#8e8e8e]">
-                                        {plan.link && (
+                                        {fp.canView('linkId') && plan.link && (
                                             <span className="truncate max-w-[200px]">
                                                 {plan.link.name}
                                                 {plan.link.shop && (
@@ -127,9 +129,11 @@ export function PlanHistoryDrawer({
                                             {fmtDate(plan.createdAt)}
                                         </span>
                                     </div>
+                                    {fp.canView('profitRates') && (
                                     <div className="text-xs text-[#666] mt-1">
                                         利润率: {fmtRates(plan.profitRates)}
                                     </div>
+                                    )}
                                 </div>
                                 <div className="flex items-center gap-2 ml-3 shrink-0">
                                     <Button

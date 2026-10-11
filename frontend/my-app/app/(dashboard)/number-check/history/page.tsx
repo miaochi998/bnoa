@@ -48,11 +48,18 @@ import {
   Ban,
 } from 'lucide-react';
 import { PermissionGate } from '@/components/PermissionGate';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
+import { DataScopeNotice } from '../_components/DataScopeNotice';
 import type { NumberCheckRecord } from '@/types/number-check';
 
 const PAGE_SIZE = 20;
 
 export default function NumberCheckHistoryPage() {
+  // 字段级权限（模块 number-check）：batchNo / fileId / totalCount / code / isDuplicate
+  const fp = useFieldPermissions('number-check');
+  /** 列表可见列数（用于空态 colSpan；受字段权限影响的列只有「编号 / 来源批次」） */
+  const listColCount =
+    8 - (fp.canView('code') ? 0 : 1) - (fp.canView('batchNo') ? 0 : 1);
   const [records, setRecords] = useState<NumberCheckRecord[]>([]);
   const [meta, setMeta] = useState<any>({ total: 0, page: 1, limit: 20, totalPages: 0 });
   const [loading, setLoading] = useState(true);
@@ -155,6 +162,9 @@ export default function NumberCheckHistoryPage() {
         </div>
       </div>
 
+      {/* 数据范围提示（dataScope 非 ALL 时才显示，数据本身已由后端过滤） */}
+      <DataScopeNotice module="number-check" />
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium">筛选</CardTitle>
@@ -210,8 +220,8 @@ export default function NumberCheckHistoryPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>编号</TableHead>
-                  <TableHead>来源批次</TableHead>
+                  {fp.canView('code') && <TableHead>编号</TableHead>}
+                  {fp.canView('batchNo') && <TableHead>来源批次</TableHead>}
                   <TableHead>导入时间</TableHead>
                   <TableHead>已结算</TableHead>
                   <TableHead>备注</TableHead>
@@ -223,15 +233,17 @@ export default function NumberCheckHistoryPage() {
               <TableBody>
                 {records.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={listColCount} className="text-center py-8 text-muted-foreground">
                       暂无数据
                     </TableCell>
                   </TableRow>
                 ) : (
                   records.map((r) => (
                     <TableRow key={r.id}>
-                      <TableCell className="font-mono">{r.code}</TableCell>
-                      <TableCell>{r.batchNo}</TableCell>
+                      {fp.canView('code') && (
+                        <TableCell className="font-mono">{r.code}</TableCell>
+                      )}
+                      {fp.canView('batchNo') && <TableCell>{r.batchNo}</TableCell>}
                       <TableCell>{new Date(r.importedAt).toLocaleString()}</TableCell>
                       <TableCell>{r.isSettled ? '是' : '否'}</TableCell>
                       <TableCell className="max-w-xs truncate">{r.remark || '-'}</TableCell>
@@ -303,13 +315,17 @@ export default function NumberCheckHistoryPage() {
           </DialogHeader>
           {detail && (
             <div className="space-y-3">
-              <div className="text-sm">
-                <span className="text-muted-foreground">编号：</span>
-                <span className="font-mono">{detail.code}</span>
-              </div>
-              <div className="text-sm">
-                <span className="text-muted-foreground">来源批次：</span>{detail.batchNo}
-              </div>
+              {fp.canView('code') && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">编号：</span>
+                  <span className="font-mono">{detail.code}</span>
+                </div>
+              )}
+              {fp.canView('batchNo') && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">来源批次：</span>{detail.batchNo}
+                </div>
+              )}
               <div className="text-sm">
                 <span className="text-muted-foreground">导入时间：</span>
                 {new Date(detail.importedAt).toLocaleString()}
@@ -323,7 +339,7 @@ export default function NumberCheckHistoryPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>来源批次</TableHead>
+                      {fp.canView('batchNo') && <TableHead>来源批次</TableHead>}
                       <TableHead>导入时间</TableHead>
                       <TableHead>状态</TableHead>
                     </TableRow>
@@ -331,7 +347,7 @@ export default function NumberCheckHistoryPage() {
                   <TableBody>
                     {(detail.history || []).map((h) => (
                       <TableRow key={h.id}>
-                        <TableCell>{h.batchNo}</TableCell>
+                        {fp.canView('batchNo') && <TableCell>{h.batchNo}</TableCell>}
                         <TableCell>{new Date(h.importedAt).toLocaleString()}</TableCell>
                         <TableCell>{h.status === 'VOID' ? '已作废' : '正常'}</TableCell>
                       </TableRow>
@@ -352,10 +368,12 @@ export default function NumberCheckHistoryPage() {
           </DialogHeader>
           {editRecord && (
             <div className="space-y-4 py-2">
-              <div className="space-y-1">
-                <Label>编号（不可修改）</Label>
-                <Input value={editRecord.code} disabled className="font-mono" />
-              </div>
+              {fp.canView('code') && (
+                <div className="space-y-1">
+                  <Label>编号（不可修改）</Label>
+                  <Input value={editRecord.code} disabled className="font-mono" />
+                </div>
+              )}
               <div className="space-y-1">
                 <Label>备注</Label>
                 <Textarea value={editRemark} onChange={(e) => setEditRemark(e.target.value)} rows={3} />

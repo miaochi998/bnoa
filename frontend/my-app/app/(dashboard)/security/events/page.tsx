@@ -47,10 +47,12 @@ import {
   ShieldX,
   Search,
   X,
+  Lock,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api';
 import { DictTag } from '@/components/shared/DictTag';
 import { DictSelect } from '@/components/shared/DictSelect';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface SecurityEvent {
   id: string;
@@ -94,7 +96,20 @@ function formatRelativeTime(dateStr: string): string {
 
 const PAGE_SIZE = 20;
 
+/** 字段级权限：字段可见但不可编辑时的可读提示 */
+function ReadOnlyHint() {
+  return (
+    <p className="flex items-center gap-1 text-[11px] leading-4 text-muted-foreground">
+      <Lock className="h-3 w-3" />
+      该字段无编辑权限，已锁定
+    </p>
+  );
+}
+
 export default function SecurityEventsPage() {
+  // 字段级权限（模块 security）：type / severity / status / fileName / details /
+  // metadata / ipAddress / location / actionTaken / notes
+  const fp = useFieldPermissions('security');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -193,13 +208,18 @@ export default function SecurityEventsPage() {
 
   const handleAcknowledge = async () => {
     if (!selectedEvent) return;
+    // 字段级权限：不可编辑的字段不提交（后端也会过滤，这里避免"改了个寂寞"）
+    const payload: { status?: string; actionTaken?: string; notes?: string } = {};
+    if (fp.canEdit('status')) payload.status = acknowledgeStatus;
+    if (fp.canEdit('actionTaken')) payload.actionTaken = actionTaken;
+    if (fp.canEdit('notes')) payload.notes = notes;
+    if (!Object.keys(payload).length) {
+      alert('当前角色无「处理状态 / 处理备注 / 采取措施」编辑权限，无法提交');
+      return;
+    }
     setActionLoading(true);
     try {
-      await apiClient.acknowledgeEvent(selectedEvent.id, {
-        status: acknowledgeStatus,
-        actionTaken,
-        notes,
-      });
+      await apiClient.acknowledgeEvent(selectedEvent.id, payload);
       setAcknowledgeDialogOpen(false);
       handleRefresh();
     } catch (error) {
@@ -212,7 +232,11 @@ export default function SecurityEventsPage() {
   const handleBatchAcknowledge = async () => {
     setActionLoading(true);
     try {
-      await apiClient.batchAcknowledgeEvents(selectedIds, notes);
+      // 字段级权限：无「处理备注」编辑权限时不提交备注内容
+      await apiClient.batchAcknowledgeEvents(
+        selectedIds,
+        fp.canEdit('notes') ? notes : '',
+      );
       setBatchAcknowledgeDialogOpen(false);
       setNotes('');
       setSelectedIds([]);
@@ -382,11 +406,11 @@ export default function SecurityEventsPage() {
                         onCheckedChange={handleSelectAll}
                       />
                     </TableHead>
-                    <TableHead>事件类型</TableHead>
-                    <TableHead>严重程度</TableHead>
+                    {fp.canView('type') && <TableHead>事件类型</TableHead>}
+                    {fp.canView('severity') && <TableHead>严重程度</TableHead>}
                     <TableHead>用户</TableHead>
-                    <TableHead>IP地址</TableHead>
-                    <TableHead>状态</TableHead>
+                    {fp.canView('ipAddress') && <TableHead>IP地址</TableHead>}
+                    {fp.canView('status') && <TableHead>状态</TableHead>}
                     <TableHead>时间</TableHead>
                     <TableHead className="text-right">操作</TableHead>
                   </TableRow>
@@ -400,17 +424,25 @@ export default function SecurityEventsPage() {
                             onCheckedChange={(checked) => handleSelectOne(event.id, !!checked)}
                           />
                         </TableCell>
-                        <TableCell>
-                          <DictTag typeCode="security_event_type" value={event.eventType} />
-                        </TableCell>
-                        <TableCell>
-                          <DictTag typeCode="security_event_severity" value={event.severity} />
-                        </TableCell>
+                        {fp.canView('type') && (
+                          <TableCell>
+                            <DictTag typeCode="security_event_type" value={event.eventType} />
+                          </TableCell>
+                        )}
+                        {fp.canView('severity') && (
+                          <TableCell>
+                            <DictTag typeCode="security_event_severity" value={event.severity} />
+                          </TableCell>
+                        )}
                         <TableCell>{event.username || '-'}</TableCell>
-                        <TableCell className="font-mono text-sm">{event.ipAddress || '-'}</TableCell>
-                        <TableCell>
-                          <DictTag typeCode="security_event_status" value={event.status} />
-                        </TableCell>
+                        {fp.canView('ipAddress') && (
+                          <TableCell className="font-mono text-sm">{event.ipAddress || '-'}</TableCell>
+                        )}
+                        {fp.canView('status') && (
+                          <TableCell>
+                            <DictTag typeCode="security_event_status" value={event.status} />
+                          </TableCell>
+                        )}
                         <TableCell className="text-muted-foreground">
                           {formatRelativeTime(event.createdAt)}
                         </TableCell>
@@ -511,37 +543,47 @@ export default function SecurityEventsPage() {
           {selectedEvent && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">事件类型:</span>
-                  <p className="font-medium"><DictTag typeCode="security_event_type" value={selectedEvent.eventType} /></p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">严重程度:</span>
-                  <p><DictTag typeCode="security_event_severity" value={selectedEvent.severity} /></p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">状态:</span>
-                  <p><DictTag typeCode="security_event_status" value={selectedEvent.status} /></p>
-                </div>
+                {fp.canView('type') && (
+                  <div>
+                    <span className="text-muted-foreground">事件类型:</span>
+                    <p className="font-medium"><DictTag typeCode="security_event_type" value={selectedEvent.eventType} /></p>
+                  </div>
+                )}
+                {fp.canView('severity') && (
+                  <div>
+                    <span className="text-muted-foreground">严重程度:</span>
+                    <p><DictTag typeCode="security_event_severity" value={selectedEvent.severity} /></p>
+                  </div>
+                )}
+                {fp.canView('status') && (
+                  <div>
+                    <span className="text-muted-foreground">状态:</span>
+                    <p><DictTag typeCode="security_event_status" value={selectedEvent.status} /></p>
+                  </div>
+                )}
                 <div>
                   <span className="text-muted-foreground">用户:</span>
                   <p className="font-medium">{selectedEvent.username || '-'}</p>
                 </div>
-                <div>
-                  <span className="text-muted-foreground">IP地址:</span>
-                  <p className="font-mono">{selectedEvent.ipAddress || '-'}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">位置:</span>
-                  <p>{selectedEvent.location || '-'}</p>
-                </div>
+                {fp.canView('ipAddress') && (
+                  <div>
+                    <span className="text-muted-foreground">IP地址:</span>
+                    <p className="font-mono">{selectedEvent.ipAddress || '-'}</p>
+                  </div>
+                )}
+                {fp.canView('location') && (
+                  <div>
+                    <span className="text-muted-foreground">位置:</span>
+                    <p>{selectedEvent.location || '-'}</p>
+                  </div>
+                )}
                 <div className="col-span-2">
                   <span className="text-muted-foreground">创建时间:</span>
                   <p>{new Date(selectedEvent.createdAt).toLocaleString('zh-CN')}</p>
                 </div>
               </div>
 
-              {selectedEvent.details && (
+              {fp.canView('details') && selectedEvent.details && (
                 <div>
                   <span className="text-sm text-muted-foreground">详情:</span>
                   <pre className="mt-1 p-2 bg-muted rounded text-xs overflow-auto max-h-32">
@@ -568,7 +610,7 @@ export default function SecurityEventsPage() {
                       <span className="text-muted-foreground">处理时间:</span>
                       <p>{selectedEvent.acknowledgedAt ? new Date(selectedEvent.acknowledgedAt).toLocaleString('zh-CN') : '-'}</p>
                     </div>
-                    {selectedEvent.actionTaken && (
+                    {fp.canView('actionTaken') && selectedEvent.actionTaken && (
                       <div className="col-span-2">
                         <span className="text-muted-foreground">采取措施:</span>
                         <p>{selectedEvent.actionTaken}</p>
@@ -604,52 +646,70 @@ export default function SecurityEventsPage() {
           {selectedEvent && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">事件类型:</span>
-                  <p className="font-medium"><DictTag typeCode="security_event_type" value={selectedEvent.eventType} /></p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">严重程度:</span>
-                  <p><DictTag typeCode="security_event_severity" value={selectedEvent.severity} /></p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">IP地址:</span>
-                  <p className="font-mono">{selectedEvent.ipAddress || '-'}</p>
-                </div>
+                {fp.canView('type') && (
+                  <div>
+                    <span className="text-muted-foreground">事件类型:</span>
+                    <p className="font-medium"><DictTag typeCode="security_event_type" value={selectedEvent.eventType} /></p>
+                  </div>
+                )}
+                {fp.canView('severity') && (
+                  <div>
+                    <span className="text-muted-foreground">严重程度:</span>
+                    <p><DictTag typeCode="security_event_severity" value={selectedEvent.severity} /></p>
+                  </div>
+                )}
+                {fp.canView('ipAddress') && (
+                  <div>
+                    <span className="text-muted-foreground">IP地址:</span>
+                    <p className="font-mono">{selectedEvent.ipAddress || '-'}</p>
+                  </div>
+                )}
               </div>
 
-              <div>
-                <label className="text-sm font-medium">更新状态为</label>
-                <DictSelect
-                  typeCode="security_event_status"
-                  value={acknowledgeStatus}
-                  onChange={setAcknowledgeStatus}
-                  excludeValues={['NEW']}
-                  className="mt-1"
-                />
-              </div>
+              {fp.canView('status') && (
+                <div>
+                  <label className="text-sm font-medium">更新状态为</label>
+                  <DictSelect
+                    typeCode="security_event_status"
+                    value={acknowledgeStatus}
+                    onChange={setAcknowledgeStatus}
+                    excludeValues={['NEW']}
+                    className="mt-1"
+                    disabled={!fp.canEdit('status')}
+                  />
+                  {!fp.canEdit('status') && <ReadOnlyHint />}
+                </div>
+              )}
 
-              <div>
-                <label className="text-sm font-medium">处理备注</label>
-                <Textarea
-                  placeholder="记录处理情况..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="mt-1"
-                  rows={2}
-                />
-              </div>
+              {fp.canView('notes') && (
+                <div>
+                  <label className="text-sm font-medium">处理备注</label>
+                  <Textarea
+                    placeholder="记录处理情况..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="mt-1"
+                    rows={2}
+                    disabled={!fp.canEdit('notes')}
+                  />
+                  {!fp.canEdit('notes') && <ReadOnlyHint />}
+                </div>
+              )}
 
-              <div>
-                <label className="text-sm font-medium">采取的措施</label>
-                <Textarea
-                  placeholder="例如：封禁IP、通知运维团队..."
-                  value={actionTaken}
-                  onChange={(e) => setActionTaken(e.target.value)}
-                  className="mt-1"
-                  rows={2}
-                />
-              </div>
+              {fp.canView('actionTaken') && (
+                <div>
+                  <label className="text-sm font-medium">采取的措施</label>
+                  <Textarea
+                    placeholder="例如：封禁IP、通知运维团队..."
+                    value={actionTaken}
+                    onChange={(e) => setActionTaken(e.target.value)}
+                    className="mt-1"
+                    rows={2}
+                    disabled={!fp.canEdit('actionTaken')}
+                  />
+                  {!fp.canEdit('actionTaken') && <ReadOnlyHint />}
+                </div>
+              )}
             </div>
           )}
           <DialogFooter>
@@ -674,16 +734,20 @@ export default function SecurityEventsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">处理备注</label>
-              <Textarea
-                placeholder="批量处理备注..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="mt-1"
-                rows={3}
-              />
-            </div>
+            {fp.canView('notes') && (
+              <div>
+                <label className="text-sm font-medium">处理备注</label>
+                <Textarea
+                  placeholder="批量处理备注..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="mt-1"
+                  rows={3}
+                  disabled={!fp.canEdit('notes')}
+                />
+                {!fp.canEdit('notes') && <ReadOnlyHint />}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setBatchAcknowledgeDialogOpen(false)}>

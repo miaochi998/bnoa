@@ -13,6 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { apiClient } from '@/lib/api';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import { AuditLog, AuditLogFilter } from '@/types/audit';
 import { useDictionary } from '@/hooks/useDictionary';
 import { DictSelect } from '@/components/shared/DictSelect';
@@ -44,6 +45,7 @@ function formatDate(dateString: string): string {
 }
 
 export default function AuditLogsPage() {
+  const fp = useFieldPermissions('audit');
   const dict = useDictionary('audit_action');
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,14 +78,15 @@ export default function AuditLogsPage() {
 
   const handleSearch = () => {
     setPage(1);
-    fetchLogs();
+    // 把搜索框内容并入查询条件（此前只刷新列表、条件没传给后端）
+    setFilter((prev) => ({ ...prev, keyword: keyword.trim() || undefined }));
   };
 
   const handleStatusChange = (value: string) => {
     if (value === 'all') {
       setFilter(prev => ({ ...prev, status: undefined }));
     } else {
-      setFilter(prev => ({ ...prev, status: value as 'SUCCESS' | 'FAILURE' }));
+      setFilter(prev => ({ ...prev, status: value as 'SUCCESS' | 'FAIL' }));
     }
     setPage(1);
   };
@@ -108,7 +111,7 @@ export default function AuditLogsPage() {
         <Button
           variant="outline"
           onClick={() => {
-            apiClient.createExport({ module: 'audit-log', format: 'xlsx' })
+            apiClient.createExport({ module: 'audit_log', format: 'xlsx' })
               .then(res => {
                 if (res.data?.async) {
                   alert('数据量较大，导出任务已提交，完成后将通过通知提醒。');
@@ -285,7 +288,7 @@ export default function AuditLogsPage() {
                       <TableCell className="text-muted-foreground">
                         <div className="flex items-center gap-2">
                           <Globe className="w-4 h-4" />
-                          {log.ipAddress || '-'}
+                          {fp.canView('ip') ? (log.ip || '-') : '******'}
                         </div>
                       </TableCell>
                       <TableCell>

@@ -359,7 +359,10 @@ export class PaymentService {
   }
 
   /** 导出 Excel */
-  async export(query: PaymentQueryDto): Promise<StreamableFile> {
+  async export(
+    query: PaymentQueryDto,
+    hiddenFieldKeys: Set<string> = new Set(),
+  ): Promise<StreamableFile> {
     const where = this.buildWhere(query);
     const rows = await this.prisma.paymentRecord.findMany({
       where,
@@ -369,6 +372,20 @@ export class PaymentService {
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('付款记录');
+    // 导出列 → 字段权限注册表字段（未登记的列保留）
+    const columnFields: Record<string, string> = {
+      recordNo: 'recordNo',
+      title: 'title',
+      paymentType: 'paymentType',
+      paymentTime: 'paymentTime',
+      amount: 'amount',
+      receiverName: 'receiverName',
+      payMethod: 'payMethod',
+      fromAccount: 'fromAccount',
+      invoiceStatus: 'invoiceStatus',
+      status: 'status',
+      remark: 'remark',
+    };
     sheet.columns = [
       { header: '系统流水号', key: 'recordNo', width: 25 },
       { header: '款项名称', key: 'title', width: 30 },
@@ -383,7 +400,10 @@ export class PaymentService {
       { header: '记录状态', key: 'status', width: 12 },
       { header: '打款人', key: 'payerName', width: 12 },
       { header: '备注', key: 'remark', width: 25 },
-    ];
+    ].filter((col) => {
+      const field = columnFields[col.key];
+      return !field || !hiddenFieldKeys.has(field);
+    });
     rows.forEach((r) => {
       sheet.addRow({
         recordNo: r.recordNo,

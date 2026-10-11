@@ -18,7 +18,29 @@ import {
     ApiBearerAuth,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { PermissionGuard } from '../../../common/guards/permission.guard';
+import { Permissions } from '../../../common/decorators/permissions.decorator';
 import { AIModelService } from '../services/ai-model.service';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import type { UserPayload } from '../../../common/decorators/current-user.decorator';
+import {
+    FieldKeyMapping,
+    FieldPermissionService,
+} from '../../role/field-permission.service';
+
+/** AI 模型字段映射：用于「信息权限」读取脱敏 */
+const AI_MODEL_FIELD_MAP: FieldKeyMapping[] = [
+    { field: 'name', key: 'name' },
+    { field: 'displayName', key: 'displayName' },
+    { field: 'provider', key: 'provider' },
+    { field: 'modelId', key: 'modelId' },
+    { field: 'apiEndpoint', key: 'apiEndpoint' },
+    { field: 'config', key: 'config' },
+    { field: 'description', key: 'description' },
+    { field: 'isEnabled', key: 'isEnabled' },
+    { field: 'isDefault', key: 'isDefault' },
+    { field: 'isFree', key: 'isFree' },
+];
 import {
     CreateModelDto,
     UpdateModelDto,
@@ -27,12 +49,31 @@ import {
 
 @ApiTags('ai-models')
 @Controller('ai/models')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @ApiBearerAuth()
 export class AIModelController {
     constructor(
         private readonly modelService: AIModelService,
+        private readonly fieldPermissionService: FieldPermissionService,
     ) {}
+
+    /** 当前用户在本模块的字段权限 */
+    private resolveFields(user: UserPayload) {
+        return this.fieldPermissionService.resolve(
+            user.sub,
+            'ai-model',
+            user.roles ?? [],
+        );
+    }
+
+    /** 递归脱敏 */
+    private stripAiDeep(node: any, state: any): any {
+      return this.fieldPermissionService.stripHiddenFieldsDeep(
+        node,
+        AI_MODEL_FIELD_MAP,
+        state,
+      );
+    }
 
     /**
      * 获取已启用的模型列表（普通用户，面板用）
@@ -42,7 +83,7 @@ export class AIModelController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: '获取已启用模型列表' })
     @ApiResponse({ status: 200, description: '获取成功' })
-    async getEnabledModels() {
+    async getEnabledModels(@CurrentUser() user: UserPayload) {
         const models =
             await this.modelService.getEnabledModels();
         const data = models.map((m) => ({
@@ -53,10 +94,11 @@ export class AIModelController {
             isFree: m.isFree,
             isDefault: m.isDefault,
         }));
+        const state = await this.resolveFields(user);
         return {
             success: true,
             message: 'success',
-            data,
+            data: this.stripAiDeep(data, state),
         };
     }
 
@@ -65,11 +107,13 @@ export class AIModelController {
      * config 中的 apiKey 脱敏
      */
     @Get()
+    @Permissions('ai-model:manage')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: '获取所有模型列表' })
     @ApiResponse({ status: 200, description: '获取成功' })
-    async getAllModels() {
+    async getAllModels(@CurrentUser() user: UserPayload) {
         const models = await this.modelService.getAllModels();
+        const state = await this.resolveFields(user);
         const data = models.map((m) => ({
             ...m,
             config: this.modelService.maskConfig(m.config),
@@ -77,29 +121,38 @@ export class AIModelController {
         return {
             success: true,
             message: 'success',
-            data,
+            data: this.stripAiDeep(data, state),
         };
     }
 
     @Get(':id')
+    @Permissions('ai-model:manage')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: '获取模型详情' })
     @ApiResponse({ status: 200, description: '获取成功' })
-    async getModel(@Param('id') id: string) {
+    async getModel(
+        @Param('id') id: string,
+        @CurrentUser() user: UserPayload,
+    ) {
         const model = await this.modelService.getModelById(id);
+        const state = await this.resolveFields(user);
         return {
             success: true,
             message: 'success',
-            data: {
-                ...model,
-                config: this.modelService.maskConfig(
-                    model.config,
-                ),
-            },
+            data: this.stripAiDeep(
+                {
+                    ...model,
+                    config: this.modelService.maskConfig(
+                        model.config,
+                    ),
+                },
+                state,
+            ),
         };
     }
 
     @Post()
+    @Permissions('ai-model:create')
     @HttpCode(HttpStatus.CREATED)
     @ApiOperation({ summary: '创建模型' })
     @ApiResponse({ status: 201, description: '创建成功' })
@@ -118,6 +171,7 @@ export class AIModelController {
     }
 
     @Put(':id')
+    @Permissions('ai-model:update')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: '更新模型' })
     @ApiResponse({ status: 200, description: '更新成功' })
@@ -142,6 +196,7 @@ export class AIModelController {
     }
 
     @Delete(':id')
+    @Permissions('ai-model:delete')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: '删除模型' })
     @ApiResponse({ status: 200, description: '删除成功' })
@@ -154,6 +209,7 @@ export class AIModelController {
     }
 
     @Patch(':id/toggle')
+    @Permissions('ai-model:toggle')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: '启用/禁用模型' })
     @ApiResponse({ status: 200, description: '操作成功' })

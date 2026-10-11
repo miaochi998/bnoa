@@ -24,8 +24,26 @@ import {
   CurrentUser,
   UserPayload,
 } from '../../common/decorators/current-user.decorator';
-import { ConfigService } from './config.service';
+import { ConfigService, CONFIG_MASK } from './config.service';
 import { StorageService } from '../storage/storage.service';
+import {
+  FieldKeyMapping,
+  FieldPermissionService,
+} from '../role/field-permission.service';
+
+/** 系统配置字段映射：用于「信息权限」的读取脱敏与写入过滤 */
+const CONFIG_FIELD_MAP: FieldKeyMapping[] = [
+  { field: 'key', key: 'key' },
+  { field: 'value', key: 'value' },
+  { field: 'type', key: 'type' },
+  { field: 'description', key: 'description' },
+  // 注意：configs 表的分类列名是 category（不是 group），
+  // 且 ConfigInfo 返回 status/isSystem —— 必须与 field-permission-registry 的字段名一致，
+  // 否则管理员在「信息权限」里配置的可见性不会生效。
+  { field: 'category', key: 'category' },
+  { field: 'status', key: 'status' },
+  { field: 'isSystem', key: 'isSystem' },
+];
 import {
   CreateConfigDto,
   UpdateConfigDto,
@@ -45,7 +63,26 @@ export class ConfigController {
   constructor(
     private readonly configService: ConfigService,
     private readonly storageService: StorageService,
+    private readonly fieldPermissionService: FieldPermissionService,
   ) {}
+
+  /** 当前用户在本模块的字段权限 */
+  private resolveFields(user: UserPayload) {
+    return this.fieldPermissionService.resolve(
+      user.sub,
+      'system',
+      user.roles ?? [],
+    );
+  }
+
+  /** 递归脱敏（配置对象 / 列表 / 分页对象都兼容） */
+  private stripConfigDeep(node: any, state: any): any {
+    return this.fieldPermissionService.stripHiddenFieldsDeep(
+      node,
+      CONFIG_FIELD_MAP,
+      state,
+    );
+  }
 
   /**
    * 创建配置
@@ -116,7 +153,7 @@ export class ConfigController {
    * 获取配置详情
    */
   @Get(':id')
-  @Permissions('config:list')
+  @Permissions('system:config')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '获取配置详情',
@@ -124,12 +161,16 @@ export class ConfigController {
   })
   @ApiResponse({ status: 200, description: '获取成功' })
   @ApiResponse({ status: 404, description: '配置不存在' })
-  async getConfigById(@Param('id') id: string) {
+  async getConfigById(
+    @Param('id') id: string,
+    @CurrentUser() user: UserPayload,
+  ) {
     const config = await this.configService.getConfigById(id);
+    const state = await this.resolveFields(user);
     return {
       success: true,
       message: '获取配置详情成功',
-      data: config,
+      data: this.stripConfigDeep(config, state),
     };
   }
 
@@ -137,16 +178,20 @@ export class ConfigController {
    * 查询配置列表
    */
   @Get()
-  @Permissions('config:list')
+  @Permissions('system:config')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '查询配置列表', description: '分页查询配置列表' })
   @ApiResponse({ status: 200, description: '查询成功' })
-  async findConfigs(@Query() query: QueryConfigDto) {
+  async findConfigs(
+    @Query() query: QueryConfigDto,
+    @CurrentUser() user: UserPayload,
+  ) {
     const result = await this.configService.findConfigs(query);
+    const state = await this.resolveFields(user);
     return {
       success: true,
       message: '查询配置列表成功',
-      data: result.items,
+      data: this.stripConfigDeep(result.items, state),
       meta: result.meta,
     };
   }
@@ -174,7 +219,7 @@ export class ConfigController {
    * 获取配置分组列表
    */
   @Get('categories/list')
-  @Permissions('config:list')
+  @Permissions('system:config')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '获取配置分组', description: '获取所有配置分组' })
   @ApiResponse({ status: 200, description: '获取成功' })
@@ -191,7 +236,7 @@ export class ConfigController {
    * 根据分组获取配置
    */
   @Get('category/:category')
-  @Permissions('config:list')
+  @Permissions('system:config')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '获取分组配置',
@@ -227,7 +272,7 @@ export class ConfigController {
    * 获取缩略图配置
    */
   @Get('thumbnail/settings')
-  @Permissions('config:list')
+  @Permissions('system:config')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '获取缩略图配置', description: '获取缩略图生成配置' })
   @ApiResponse({ status: 200, description: '获取成功' })
@@ -599,7 +644,7 @@ export class ConfigController {
    * 获取RUSTFS存储配置
    */
   @Get('storage/rustfs')
-  @Permissions('config:list')
+  @Permissions('system:config')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '获取RUSTFS存储配置' })
   @ApiResponse({ status: 200, description: '获取成功' })
@@ -611,8 +656,8 @@ export class ConfigController {
       data: {
         endpoint: `${config.useSSL ? 'https' : 'http'}://${config.endpoint}:${config.port}`,
         bucketName: config.bucketName,
-        accessKey: config.accessKey,
-        secretKey: config.secretKey,
+        accessKey: config.accessKey ? CONFIG_MASK : '',
+        secretKey: config.secretKey ? CONFIG_MASK : '',
         region: config.region || 'us-east-1',
       },
     };
@@ -637,13 +682,14 @@ export class ConfigController {
     @CurrentUser() user: UserPayload,
   ) {
     // 批量保存到数据库配置
+    // 掩码值表示"未修改"，跳过该项（setConfigByKey 内部亦有兜底）
     const configs = [
       { key: 'storage.s3Endpoint', value: dto.endpoint },
       { key: 'storage.s3Bucket', value: dto.bucketName },
       { key: 'storage.s3AccessKey', value: dto.accessKey },
       { key: 'storage.s3SecretKey', value: dto.secretKey },
       { key: 'storage.s3Region', value: dto.region || 'us-east-1' },
-    ];
+    ].filter((cfg) => cfg.value !== CONFIG_MASK);
 
     for (const cfg of configs) {
       await this.configService.setConfigByKey(cfg.key, cfg.value, user.sub);
@@ -662,7 +708,7 @@ export class ConfigController {
    * 测试RUSTFS连接
    */
   @Post('storage/rustfs/test')
-  @Permissions('config:list')
+  @Permissions('file-storage:update')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '测试RUSTFS连接' })
   @ApiResponse({ status: 200, description: '测试完成' })

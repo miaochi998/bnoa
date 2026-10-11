@@ -39,7 +39,11 @@ export class NumberCheckService {
 
   // ==================== 查重 ====================
 
-  async dedup(dto: DedupDto) {
+  /**
+   * 查重
+   * @param onlyUserId 数据范围限定：非空时只在「该用户提交的编号」里查重
+   */
+  async dedup(dto: DedupDto, onlyUserId?: string) {
     const codes = dto.codes || [];
     const counts = new Map<string, number>();
     for (const c of codes) {
@@ -65,7 +69,12 @@ export class NumberCheckService {
       }
 
       const matches = await this.prisma.numberCheckRecord.findMany({
-        where: { code, status: 'ACTIVE' },
+        where: {
+          code,
+          status: 'ACTIVE',
+          // 数据范围限定：只看自己提交的编号
+          ...(onlyUserId ? { createdBy: onlyUserId } : {}),
+        },
         include: { batch: { select: { batchNo: true } } },
         orderBy: { importedAt: 'desc' },
       });
@@ -277,10 +286,12 @@ export class NumberCheckService {
 
   // ==================== 历史记录 ====================
 
-  async listRecords(filter: RecordFilterDto) {
+  async listRecords(filter: RecordFilterDto, onlyUserId?: string) {
     const page = filter.page ?? 1;
     const pageSize = filter.pageSize ?? 20;
     const where: any = {};
+    // 数据范围限定：只看自己提交的编号
+    if (onlyUserId) where.createdBy = onlyUserId;
 
     if (filter.keyword) {
       where.code = { contains: filter.keyword };
@@ -350,15 +361,22 @@ export class NumberCheckService {
     };
   }
 
-  async getRecord(id: string) {
+  async getRecord(id: string, onlyUserId?: string) {
     const r = await this.prisma.numberCheckRecord.findUnique({
       where: { id },
       include: { batch: { select: { batchNo: true, fileId: true } } },
     });
     if (!r) throw new NotFoundException('记录不存在');
+    // 数据范围限定：只能看自己提交的编号
+    if (onlyUserId && r.createdBy !== onlyUserId) {
+      throw new NotFoundException('记录不存在');
+    }
 
     const history = await this.prisma.numberCheckRecord.findMany({
-      where: { code: r.code },
+      where: {
+        code: r.code,
+        ...(onlyUserId ? { createdBy: onlyUserId } : {}),
+      },
       include: { batch: { select: { batchNo: true } } },
       orderBy: { importedAt: 'desc' },
     });
@@ -386,7 +404,17 @@ export class NumberCheckService {
     };
   }
 
-  async updateRecord(id: string, dto: UpdateRecordDto) {
+  async updateRecord(id: string, dto: UpdateRecordDto, onlyUserId?: string) {
+    // 数据范围限定：只能修改自己提交的编号
+    if (onlyUserId) {
+      const own = await this.prisma.numberCheckRecord.findUnique({
+        where: { id },
+        select: { createdBy: true },
+      });
+      if (!own || own.createdBy !== onlyUserId) {
+        throw new NotFoundException('记录不存在');
+      }
+    }
     const r = await this.prisma.numberCheckRecord.findUnique({
       where: { id },
     });
@@ -416,10 +444,23 @@ export class NumberCheckService {
 
   // ==================== 导出重复清单 ====================
 
-  async exportDuplicates(dto: ExportDuplicatesDto): Promise<StreamableFile> {
+  /**
+   * 导出重复清单
+   * @param onlyUserId 数据范围限定：非空时只导出该用户提交的编号
+   */
+  async exportDuplicates(
+    dto: ExportDuplicatesDto,
+    onlyUserId?: string,
+    hiddenFieldKeys: Set<string> = new Set(),
+  ): Promise<StreamableFile> {
     const codes = (dto.codes || []).filter((c) => c && c.trim());
     const matches = await this.prisma.numberCheckRecord.findMany({
-      where: { code: { in: codes }, status: 'ACTIVE' },
+      where: {
+        code: { in: codes },
+        status: 'ACTIVE',
+        // 数据范围限定：只导出自己提交的编号
+        ...(onlyUserId ? { createdBy: onlyUserId } : {}),
+      },
       include: { batch: { select: { batchNo: true } } },
       orderBy: { code: 'asc' },
     });
@@ -430,15 +471,18 @@ export class NumberCheckService {
 
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('重复编号');
-    ws.addRow(['编号', '来源批次', '导入时间', '是否已结算', '备注']);
+    // 导出列遵守字段级权限：不可见字段对应的列直接去掉
+    const columns: { header: string; field: string | null; get: (m: any) => any }[] = [
+      { header: '编号', field: 'code', get: (m: any) => m.code },
+      { header: '来源批次', field: 'batchNo', get: (m: any) => m.batch?.batchNo ?? '' },
+      { header: '导入时间', field: null, get: (m: any) => (m.importedAt ? m.importedAt.toISOString() : '') },
+      { header: '是否已结算', field: null, get: (m: any) => (m.isSettled ? '是' : '否') },
+      { header: '备注', field: null, get: (m: any) => m.remark || '' },
+    ].filter((col) => !col.field || !hiddenFieldKeys.has(col.field));
+
+    ws.addRow(columns.map((col) => col.header));
     for (const m of matches) {
-      ws.addRow([
-        m.code,
-        m.batch.batchNo,
-        m.importedAt ? m.importedAt.toISOString() : '',
-        m.isSettled ? '是' : '否',
-        m.remark || '',
-      ]);
+      ws.addRow(columns.map((col) => col.get(m)));
     }
     const buf = await wb.xlsx.writeBuffer();
     return new StreamableFile(Buffer.from(buf), {
@@ -449,11 +493,32 @@ export class NumberCheckService {
 
   // ==================== 批次原始文件下载 ====================
 
-  async downloadBatchFile(batchNo: string): Promise<StreamableFile> {
+  /**
+   * 批次原始文件下载
+   * @param onlyUserId 数据范围限定：非空时只能下载自己提交的批次
+   */
+  async downloadBatchFile(
+    batchNo: string,
+    onlyUserId?: string,
+  ): Promise<StreamableFile> {
     const batch = await this.prisma.numberCheckBatch.findUnique({
       where: { batchNo },
     });
     if (!batch) throw new NotFoundException('批次不存在');
+
+    // 数据范围限定：批次提交人不是自己、且批次下没有自己提交的记录时，等同不存在
+    if (onlyUserId && batch.createdBy && batch.createdBy !== onlyUserId) {
+      throw new NotFoundException('批次不存在');
+    }
+    if (onlyUserId && !batch.createdBy) {
+      const ownRecord = await this.prisma.numberCheckRecord.findFirst({
+        where: { batchId: batch.id, createdBy: onlyUserId },
+        select: { id: true },
+      });
+      if (!ownRecord) {
+        throw new NotFoundException('批次不存在');
+      }
+    }
     if (!batch.fileId) throw new NotFoundException('该批次无原始文件');
 
     const file = await this.prisma.file.findUnique({
@@ -472,22 +537,32 @@ export class NumberCheckService {
 
   // ==================== 首页统计 ====================
 
-  async getStats() {
+  /**
+   * 首页统计
+   * @param onlyUserId 数据范围限定：非空时只统计该用户提交的编号
+   */
+  async getStats(onlyUserId?: string) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
+    // 数据范围限定：只看自己提交的编号
+    const ownerWhere = onlyUserId ? { createdBy: onlyUserId } : {};
+
     const [totalRecords, todayCreated, recentBatch, todayRecords] =
       await Promise.all([
-        this.prisma.numberCheckRecord.count({ where: { status: 'ACTIVE' } }),
         this.prisma.numberCheckRecord.count({
-          where: { createdAt: { gte: todayStart } },
+          where: { status: 'ACTIVE', ...ownerWhere },
+        }),
+        this.prisma.numberCheckRecord.count({
+          where: { createdAt: { gte: todayStart }, ...ownerWhere },
         }),
         this.prisma.numberCheckBatch.findFirst({
+          where: { ...ownerWhere },
           orderBy: { createdAt: 'desc' },
           select: { batchNo: true },
         }),
         this.prisma.numberCheckRecord.findMany({
-          where: { createdAt: { gte: todayStart } },
+          where: { createdAt: { gte: todayStart }, ...ownerWhere },
           select: { code: true },
         }),
       ]);
@@ -497,7 +572,11 @@ export class NumberCheckService {
     if (codesToday.length) {
       const grouped = await this.prisma.numberCheckRecord.groupBy({
         by: ['code'],
-        where: { code: { in: codesToday }, status: 'ACTIVE' },
+        where: {
+          code: { in: codesToday },
+          status: 'ACTIVE',
+          ...ownerWhere,
+        },
         _count: { _all: true },
       });
       for (const g of grouped) {

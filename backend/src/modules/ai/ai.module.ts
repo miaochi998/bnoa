@@ -8,9 +8,10 @@ import { AIModelService } from './services/ai-model.service';
 import { GeminiService } from './services/providers/gemini.service';
 import { OpenRouterService } from './services/providers/openrouter.service';
 import { DeepSeekService } from './services/providers/deepseek.service';
+import { FieldPermissionModule } from '../role/field-permission.module';
 
 @Module({
-    imports: [ConfigModule, AuthModule],
+    imports: [ConfigModule, AuthModule, FieldPermissionModule],
     controllers: [AIController, AIModelController],
     providers: [
         AIService,

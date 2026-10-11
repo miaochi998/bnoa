@@ -27,6 +27,18 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RoleService } from './role.service';
 import {
+  FieldKeyMapping,
+  FieldPermissionService,
+} from './field-permission.service';
+
+/** 权限点字段映射：用于「信息权限」读取脱敏 */
+const PERMISSION_FIELD_MAP: FieldKeyMapping[] = [
+  { field: 'name', key: 'name' },
+  { field: 'code', key: 'code' },
+  { field: 'type', key: 'type' },
+  { field: 'description', key: 'description' },
+];
+import {
   CreatePermissionDto,
   UpdatePermissionDto,
   QueryPermissionDto,
@@ -41,7 +53,28 @@ import {
 @UseGuards(JwtAuthGuard, PermissionGuard)
 @ApiBearerAuth()
 export class PermissionController {
-  constructor(private readonly roleService: RoleService) {}
+  constructor(
+    private readonly roleService: RoleService,
+    private readonly fieldPermissionService: FieldPermissionService,
+  ) {}
+
+  /** 当前用户在本模块的字段权限 */
+  private resolveFields(user: UserPayload) {
+    return this.fieldPermissionService.resolve(
+      user.sub,
+      'permission',
+      user.roles ?? [],
+    );
+  }
+
+  /** 递归脱敏 */
+  private stripPermissionDeep(node: any, state: any): any {
+    return this.fieldPermissionService.stripHiddenFieldsDeep(
+      node,
+      PERMISSION_FIELD_MAP,
+      state,
+    );
+  }
 
   /**
    * 同步权限定义到数据库（仅超级管理员）
@@ -62,10 +95,31 @@ export class PermissionController {
   }
 
   /**
+   * 立即刷新权限缓存（仅超级管理员）
+   * 正常情况下「保存角色权限」会自动清缓存，此接口用于兜底排查
+   */
+  @Post('refresh-cache')
+  @SuperAdminOnly()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '立即刷新权限缓存',
+    description: '清空服务端权限缓存，使权限变更立即对所有用户生效',
+  })
+  async refreshPermissionCache() {
+    const before = PermissionGuard.cacheSize();
+    PermissionGuard.clearAllCacheNow();
+    return {
+      success: true,
+      message: `权限缓存已刷新（清理 ${before} 条）`,
+      data: { cleared: before, remaining: PermissionGuard.cacheSize() },
+    };
+  }
+
+  /**
    * 创建权限
    */
   @Post()
-  @SuperAdminOnly()
+  @Permissions('permission:create')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: '创建权限', description: '创建新权限' })
   @ApiResponse({ status: 201, description: '权限创建成功' })
@@ -87,7 +141,7 @@ export class PermissionController {
    * 更新权限
    */
   @Put(':id')
-  @SuperAdminOnly()
+  @Permissions('permission:update')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '更新权限', description: '更新权限信息' })
   @ApiResponse({ status: 200, description: '权限更新成功' })
@@ -113,7 +167,7 @@ export class PermissionController {
    * 删除权限
    */
   @Delete(':id')
-  @SuperAdminOnly()
+  @Permissions('permission:delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '删除权限', description: '删除指定权限' })
   @ApiResponse({ status: 200, description: '权限删除成功' })
@@ -159,12 +213,16 @@ export class PermissionController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '查询权限列表', description: '查询权限列表' })
   @ApiResponse({ status: 200, description: '查询成功' })
-  async findPermissions(@Query() query: QueryPermissionDto) {
+  async findPermissions(
+    @Query() query: QueryPermissionDto,
+    @CurrentUser() user: UserPayload,
+  ) {
     const permissions = await this.roleService.findPermissions(query);
+    const state = await this.resolveFields(user);
     return {
       success: true,
       message: '查询权限列表成功',
-      data: permissions,
+      data: this.stripPermissionDeep(permissions, state),
     };
   }
 

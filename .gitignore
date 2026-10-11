@@ -96,3 +96,5 @@ PROJECT_MEMORY.md
 # 内部文档（仅本地参考，不提交到公开仓库）
 # ====================
 docs/
+# 审计脚本中间产物（脚本本身保留在 backend/scripts/）
+backend/scripts/audit-*.json

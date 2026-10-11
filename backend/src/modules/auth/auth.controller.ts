@@ -38,6 +38,8 @@ import { ChangePasswordDto, ResetPasswordDto } from './dto/change-password.dto';
 import { SendResetCodeDto } from '../email/dto/email.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { PermissionGuard } from '../../common/guards/permission.guard';
+import { Permissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('认证授权')
@@ -209,7 +211,8 @@ export class AuthController {
   }
 
   @Post('default-avatar')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissionGuard)
+  @Permissions('system:config')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @ApiConsumes('multipart/form-data')

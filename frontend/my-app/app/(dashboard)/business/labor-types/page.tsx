@@ -25,6 +25,7 @@ import { PermissionGate } from '@/components/PermissionGate';
 import { LaborTypeForm } from './components/LaborTypeForm';
 import { LaborRateDialog } from './components/LaborRateDialog';
 import { EditableCell } from '@/components/shared/EditableCell';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import {
     DndContext,
     closestCenter,
@@ -92,6 +93,7 @@ function SortableRow({ id, children }: { id: string; children: React.ReactNode }
 }
 
 export default function LaborTypesPage() {
+    const fp = useFieldPermissions('labor');
     const [list, setList] = useState<LaborType[]>([]);
     const [loading, setLoading] = useState(true);
     const [keyword, setKeyword] = useState('');
@@ -195,6 +197,10 @@ export default function LaborTypesPage() {
 
     // 更新工种名称
     const handleUpdateName = async (id: string, newName: string) => {
+        if (!fp.canEdit('name')) {
+            alert('你没有「工种名称」的编辑权限');
+            return;
+        }
         try {
             await apiClient.updateLaborType(id, { name: newName });
             // 更新本地列表
@@ -352,52 +358,74 @@ export default function LaborTypesPage() {
                                     <TableHeader>
                                         <TableRow className="border-[#1e1e1e] hover:bg-transparent">
                                             <TableHead className="text-[#8e8e8e] w-10">拖拽</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">编码</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">名称</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">计费方式</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">当前标准</TableHead>
-                                            <TableHead className="text-[#8e8e8e]">状态</TableHead>
+                                            {fp.canView('code') && (
+                                                <TableHead className="text-[#8e8e8e]">编码</TableHead>
+                                            )}
+                                            {fp.canView('name') && (
+                                                <TableHead className="text-[#8e8e8e]">名称</TableHead>
+                                            )}
+                                            {fp.canView('billingType') && (
+                                                <TableHead className="text-[#8e8e8e]">计费方式</TableHead>
+                                            )}
+                                            {fp.canView('rate.unitPrice') && (
+                                                <TableHead className="text-[#8e8e8e]">当前标准</TableHead>
+                                            )}
+                                            {fp.canView('status') && (
+                                                <TableHead className="text-[#8e8e8e]">状态</TableHead>
+                                            )}
                                             <TableHead className="text-[#8e8e8e] text-right">操作</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {list.map((item) => (
                                             <SortableRow key={item.id} id={item.id}>
+                                                {fp.canView('code') && (
                                                 <TableCell className="font-medium text-white">
-                                                    {item.code}
+                                                    {item.code ?? ''}
                                                 </TableCell>
+                                                )}
+                                                {fp.canView('name') && (
                                                 <TableCell className="text-white">
                                                     <PermissionGate
                                                         permission="labor:update"
-                                                        fallback={<span>{item.name}</span>}
+                                                        fallback={<span>{item.name ?? ''}</span>}
                                                     >
                                                         <EditableCell
                                                             value={item.name}
                                                             onSave={(newValue) => handleUpdateName(item.id, newValue)}
                                                             placeholder="工种名称"
                                                             maxLength={50}
+                                                            disabled={!fp.canEdit('name')}
                                                         />
                                                     </PermissionGate>
                                                 </TableCell>
+                                                )}
+                                                {fp.canView('billingType') && (
                                                 <TableCell>
                                                     <DictTag
                                                         typeCode="labor_billing_type"
                                                         value={item.billingType}
                                                     />
                                                 </TableCell>
+                                                )}
+                                                {fp.canView('rate.unitPrice') && (
                                                 <TableCell className="text-white">
                                                     {item.currentRate
                                                         ? `¥${Number(item.currentRate.unitPrice).toFixed(3)}/${item.currentRate.unit}`
                                                         : '-'}
                                                 </TableCell>
+                                                )}
+                                                {fp.canView('status') && (
                                                 <TableCell>
                                                     <DictTag
                                                         typeCode="consumable_status"
                                                         value={item.status}
                                                     />
                                                 </TableCell>
+                                                )}
                                                 <TableCell className="text-right">
                                                     <div className="flex justify-end gap-2">
+                                                        {fp.canView('rate.unitPrice') && (
                                                         <PermissionGate permission="labor:update">
                                                             <Button
                                                                 variant="ghost"
@@ -409,6 +437,7 @@ export default function LaborTypesPage() {
                                                                 <DollarSign className="w-4 h-4" />
                                                             </Button>
                                                         </PermissionGate>
+                                                        )}
                                                         <PermissionGate permission="labor:update">
                                                             <Button
                                                                 variant="ghost"

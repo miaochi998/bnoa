@@ -17,6 +17,8 @@ import {
   ApiResponse,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PermissionGuard } from '../../common/guards/permission.guard';
+import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RealFolderService } from './real-folder.service';
 import {
   CreateRealFolderDto,
@@ -29,12 +31,13 @@ import {
  */
 @ApiTags('真实文件夹管理')
 @Controller('folders/real')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @ApiBearerAuth()
 export class RealFolderController {
   constructor(private readonly realFolderService: RealFolderService) {}
 
   @Post()
+  @Permissions('folder:manage')
   @ApiOperation({ summary: '创建真实文件夹' })
   @ApiResponse({ status: 201, type: RealFolderResponse })
   async create(@Body() dto: CreateRealFolderDto): Promise<RealFolderResponse> {
@@ -42,6 +45,7 @@ export class RealFolderController {
   }
 
   @Get()
+  @Permissions('file-storage:manage')
   @ApiOperation({ summary: '获取所有真实文件夹' })
   @ApiResponse({ status: 200, type: [RealFolderResponse] })
   async findAll(): Promise<RealFolderResponse[]> {
@@ -49,6 +53,7 @@ export class RealFolderController {
   }
 
   @Get(':id')
+  @Permissions('file-storage:manage')
   @ApiOperation({ summary: '获取真实文件夹详情' })
   @ApiResponse({ status: 200, type: RealFolderResponse })
   async findById(@Param('id') id: string): Promise<RealFolderResponse> {
@@ -56,6 +61,7 @@ export class RealFolderController {
   }
 
   @Patch(':id')
+  @Permissions('folder:manage')
   @ApiOperation({ summary: '更新真实文件夹' })
   @ApiResponse({ status: 200, type: RealFolderResponse })
   async update(
@@ -66,6 +72,7 @@ export class RealFolderController {
   }
 
   @Delete(':id')
+  @Permissions('folder:manage')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: '删除真实文件夹' })
   @ApiResponse({ status: 204 })
@@ -74,6 +81,7 @@ export class RealFolderController {
   }
 
   @Post('init-system')
+  @Permissions('folder:manage')
   @ApiOperation({ summary: '初始化系统默认文件夹' })
   @ApiResponse({ status: 200 })
   async initSystemFolders(): Promise<{ message: string }> {

@@ -11,6 +11,7 @@ import {
 import { apiClient } from '@/lib/api';
 import { EditableCell } from '@/components/shared/EditableCell';
 import { PermissionGate } from '@/components/PermissionGate';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import {
     Plus, CheckCircle, Circle, Trash2, Pencil,
 } from 'lucide-react';
@@ -36,6 +37,7 @@ export function LaborRateDialog({
     laborTypeName,
     onClose,
 }: LaborRateDialogProps) {
+    const fp = useFieldPermissions('labor');
     const [rates, setRates] = useState<RateRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
@@ -178,6 +180,14 @@ export function LaborRateDialog({
         }
     };
 
+    if (!fp.canView('rate.unitPrice')) {
+        return (
+            <div className="py-10 text-center text-sm text-[#8e8e8e]">
+                你没有「工费标准」的查看权限
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
@@ -186,6 +196,7 @@ export function LaborRateDialog({
                 </p>
                 <Button
                     size="sm"
+                    disabled={!fp.canEdit('rate.unitPrice')}
                     onClick={() => {
                         setEditingRate(null);
                         setFormData({
@@ -360,7 +371,8 @@ export function LaborRateDialog({
                                     ) : (
                                         <button
                                             onClick={() => handleSetCurrent(r.id)}
-                                            className="hover:text-[#409fff] transition-colors"
+                                            disabled={!fp.canEdit('rate.unitPrice')}
+                                            className="hover:text-[#409fff] transition-colors disabled:opacity-50"
                                             title="设为当前标准"
                                         >
                                             <Circle className="w-4 h-4 text-[#8e8e8e]" />
@@ -378,6 +390,7 @@ export function LaborRateDialog({
                                             placeholder="单价"
                                             type="number"
                                             label="单价"
+                                            disabled={!fp.canEdit('rate.unitPrice')}
                                         />
                                     </PermissionGate>
                                 </TableCell>
@@ -391,6 +404,7 @@ export function LaborRateDialog({
                                             onSave={(newValue) => handleUpdateRateField(r.id, 'unit', newValue)}
                                             placeholder="单位"
                                             maxLength={20}
+                                            disabled={!fp.canEdit('rate.unit')}
                                         />
                                     </PermissionGate>
                                 </TableCell>
@@ -407,6 +421,7 @@ export function LaborRateDialog({
                                             onSave={(newValue) => handleUpdateRateField(r.id, 'remark', newValue)}
                                             placeholder="备注"
                                             maxLength={200}
+                                            disabled={!fp.canEdit('rate.remark')}
                                         />
                                     </PermissionGate>
                                 </TableCell>
@@ -420,6 +435,7 @@ export function LaborRateDialog({
                                             variant="ghost"
                                             size="icon"
                                             onClick={() => handleEditRate(r)}
+                                            disabled={!fp.canEdit('rate.unitPrice')}
                                             className="h-7 w-7 text-[#8e8e8e] hover:text-[#409fff] hover:bg-[#409fff]/10"
                                             title="编辑"
                                         >
@@ -429,6 +445,7 @@ export function LaborRateDialog({
                                             variant="ghost"
                                             size="icon"
                                             onClick={() => handleDeleteRate(r)}
+                                            disabled={!fp.canEdit('rate.unitPrice')}
                                             className="h-7 w-7 text-[#8e8e8e] hover:text-red-400 hover:bg-red-500/10"
                                             title="删除"
                                         >

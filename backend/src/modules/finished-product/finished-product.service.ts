@@ -158,8 +158,10 @@ export class FinishedProductService {
             const currentRate =
                 item.laborType.laborRates[0];
             if (currentRate) {
+                // 工费 = 单价 × 次数（quantity 此前缺失，导致只按 1 次计算）
                 laborCost +=
-                    Number(currentRate.unitPrice);
+                    Number(currentRate.unitPrice) *
+                    (item.quantity ?? 1);
             }
         }
 
@@ -469,6 +471,8 @@ export class FinishedProductService {
                                         created.id,
                                     laborTypeId:
                                         item.laborTypeId,
+                                    quantity:
+                                        item.quantity ?? 1,
                                 })),
                         });
                 }
@@ -605,6 +609,8 @@ export class FinishedProductService {
                                     finishedProductId: id,
                                     laborTypeId:
                                         item.laborTypeId,
+                                    quantity:
+                                        item.quantity ?? 1,
                                 })),
                         });
                 }

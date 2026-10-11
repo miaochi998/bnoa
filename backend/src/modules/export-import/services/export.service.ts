@@ -11,6 +11,10 @@ import * as path from 'path';
 import { BaseExportAdapter } from '../adapters/base.adapter';
 import { ExportTaskService } from './export-task.service';
 import {
+    FieldPermissionService,
+} from '../../role/field-permission.service';
+import { getFieldDefinitions } from '../../../config/field-permission-registry';
+import {
     CreateExportParams,
     ExportResult,
     ExportJobData,
@@ -21,6 +25,21 @@ const EXPORT_DIR = path.join(
     process.cwd(), 'uploads', 'exports',
 );
 
+/**
+ * 导出中心适配器模块名 → 字段权限注册表模块标识
+ * 只有登记过字段权限的模块才会做列级过滤。
+ */
+const ADAPTER_TO_REGISTRY_MODULE: Record<string, string> = {
+    user: 'user',
+    audit_log: 'audit',
+    config: 'system',
+    dictionary: 'dictionary',
+    email_log: 'email',
+    notification: 'notification',
+    security_log: 'security',
+    talent: 'talent',
+};
+
 @Injectable()
 export class ExportService {
     private readonly logger =
@@ -30,6 +49,7 @@ export class ExportService {
 
     constructor(
         private readonly taskService: ExportTaskService,
+        private readonly fieldPermissionService: FieldPermissionService,
         @InjectQueue('export')
         private readonly exportQueue: Queue,
     ) {
@@ -119,6 +139,7 @@ export class ExportService {
                     adapter,
                     params.format,
                     params.params,
+                    params.userId,
                 );
                 return {
                     taskId: task.id,
@@ -174,9 +195,16 @@ export class ExportService {
         adapter: BaseExportAdapter,
         format: string,
         params?: any,
+        userId?: string,
     ): Promise<string> {
         await this.taskService.updateTask(
             taskId, { status: 'processing' },
+        );
+
+        // 字段级权限：算出本模块「不可见字段」，导出时整列去掉
+        const hiddenFields = await this.resolveHiddenFieldKeys(
+            adapter,
+            userId,
         );
 
         const pageSize = 1000;
@@ -210,15 +238,15 @@ export class ExportService {
 
         if (format === 'xlsx') {
             await this.generateExcel(
-                adapter, allData, filePath,
+                adapter, allData, filePath, hiddenFields,
             );
         } else if (format === 'csv') {
             await this.generateCsv(
-                adapter, allData, filePath,
+                adapter, allData, filePath, hiddenFields,
             );
         } else if (format === 'json') {
             await this.generateJson(
-                adapter, allData, filePath,
+                adapter, allData, filePath, hiddenFields,
             );
         }
 
@@ -239,19 +267,59 @@ export class ExportService {
         return filePath;
     }
 
+    /**
+     * 计算「本次导出需要隐藏的字段」
+     *
+     * 只对**注册表中确实登记过**的字段生效：适配器的列名与注册表字段名可能不完全一致，
+     * 若不加这层判断，可能把整张表的所有列都过滤掉（导出变空）。
+     */
+    private async resolveHiddenFieldKeys(
+        adapter: BaseExportAdapter,
+        userId?: string,
+    ): Promise<Set<string>> {
+        const hidden = new Set<string>();
+        const module = ADAPTER_TO_REGISTRY_MODULE[adapter.moduleName];
+        if (!module || !userId) return hidden;
+
+        try {
+            const state = await this.fieldPermissionService.resolve(
+                userId,
+                module,
+            );
+            const registered = new Set(
+                getFieldDefinitions(module).map((d) => d.field),
+            );
+            for (const col of adapter.columns) {
+                if (
+                    registered.has(col.field) &&
+                    !state.canView.has(col.field)
+                ) {
+                    hidden.add(col.field);
+                }
+            }
+        } catch (error) {
+            // 字段权限解析失败时不阻断导出（保持原有行为）
+            this.logger.warn(
+                `导出字段权限解析失败（module=${adapter.moduleName}）：${(error as Error).message}`,
+            );
+        }
+        return hidden;
+    }
+
     /** 生成 Excel 文件 */
     private async generateExcel(
         adapter: BaseExportAdapter,
         data: any[],
         filePath: string,
+        hiddenFields?: Set<string>,
     ) {
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet(
             adapter.displayName,
         );
 
-        const headers = adapter.getHeaders();
-        const widths = adapter.getColumnWidths();
+        const headers = adapter.getHeaders(hiddenFields);
+        const widths = adapter.getColumnWidths(hiddenFields);
 
         // 表头
         sheet.addRow(headers);
@@ -269,7 +337,7 @@ export class ExportService {
 
         // 数据行
         for (const row of data) {
-            const formatted = adapter.formatRow(row);
+            const formatted = adapter.formatRow(row, hiddenFields);
             sheet.addRow(
                 headers.map((h) => formatted[h] ?? ''),
             );
@@ -283,8 +351,9 @@ export class ExportService {
         adapter: BaseExportAdapter,
         data: any[],
         filePath: string,
+        hiddenFields?: Set<string>,
     ) {
-        const headers = adapter.getHeaders();
+        const headers = adapter.getHeaders(hiddenFields);
         const lines: string[] = [];
 
         // BOM + 表头
@@ -294,7 +363,7 @@ export class ExportService {
 
         // 数据行
         for (const row of data) {
-            const formatted = adapter.formatRow(row);
+            const formatted = adapter.formatRow(row, hiddenFields);
             lines.push(
                 headers.map((h) => {
                     const v = String(
@@ -317,9 +386,10 @@ export class ExportService {
         adapter: BaseExportAdapter,
         data: any[],
         filePath: string,
+        hiddenFields?: Set<string>,
     ) {
         const formatted = data.map(
-            (row) => adapter.formatRow(row),
+            (row) => adapter.formatRow(row, hiddenFields),
         );
         fs.writeFileSync(
             filePath,

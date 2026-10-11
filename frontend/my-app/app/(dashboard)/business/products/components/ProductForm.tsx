@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { apiClient } from '@/lib/api';
+import { apiClient, getFilePreviewUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SimpleImageUploader } from '@/components/upload/SimpleImageUploader';
 import { DictSelect } from '@/components/shared/DictSelect';
 import { Package, Upload, X } from 'lucide-react';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface Product {
     id: string;
@@ -29,6 +30,7 @@ interface ProductFormProps {
 }
 
 export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) {
+    const fp = useFieldPermissions('product');
     const [formData, setFormData] = useState({
         name: product?.name || '',
         code: product?.code || '',
@@ -74,8 +76,27 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!formData.name.trim()) {
+        // 新增产品必须有「产品名称」的编辑权限
+        if (!product && !fp.canEdit('name')) {
+            alert('你没有「产品名称」的编辑权限，无法创建产品');
+            return;
+        }
+        if (fp.canEdit('name') && !formData.name.trim()) {
             alert('请输入产品名称');
+            return;
+        }
+
+        // 只提交「可编辑」的字段：被配成只读/隐藏的字段不发送，避免误改或 400
+        const payload: Record<string, any> = {};
+        if (fp.canEdit('name')) payload.name = formData.name;
+        if (fp.canEdit('brand')) payload.brand = formData.brand || undefined;
+        if (fp.canEdit('pricingMode')) payload.pricingMode = formData.pricingMode;
+        if (fp.canEdit('status')) payload.status = formData.status;
+        if (fp.canEdit('remark')) payload.remark = formData.remark || undefined;
+        if (fp.canEdit('mainImage')) payload.mainImage = formData.mainImage || undefined;
+
+        if (Object.keys(payload).length === 0) {
+            alert('你没有产品字段的编辑权限');
             return;
         }
 
@@ -83,26 +104,14 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
         try {
             if (product) {
                 // 更新
-                await apiClient.updateProduct(product.id, {
-                    name: formData.name,
-                    brand: formData.brand || undefined,
-                    pricingMode: formData.pricingMode,
-                    status: formData.status,
-                    remark: formData.remark || undefined,
-                    mainImage: formData.mainImage || undefined,
-                });
+                await apiClient.updateProduct(product.id, payload as any);
                 alert('更新成功');
             } else {
                 // 创建（编码留空时后端自动生成）
-                await apiClient.createProduct({
-                    name: formData.name,
-                    code: formData.code?.trim() || undefined,
-                    brand: formData.brand || undefined,
-                    pricingMode: formData.pricingMode,
-                    status: formData.status,
-                    remark: formData.remark || undefined,
-                    mainImage: formData.mainImage || undefined,
-                });
+                if (fp.canEdit('code')) {
+                    payload.code = formData.code?.trim() || undefined;
+                }
+                await apiClient.createProduct(payload as any);
                 alert('创建成功');
             }
             onSuccess();
@@ -116,20 +125,37 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
             {/* 产品图片上传 */}
+            {fp.canView('mainImage') && (
             <div className="space-y-2">
                 <Label>产品图片</Label>
-                <SimpleImageUploader
-                    value={formData.mainImage || undefined}
-                    onChange={(fileId) => setFormData({ ...formData, mainImage: fileId })}
-                    realFolderId={imageConfig?.realFolderId || undefined}
-                    storageMode="rustfs"
-                    accept={imageConfig?.formats?.map(f => `image/${f}`).join(',') || 'image/jpeg,image/png,image/gif'}
-                    maxSize={imageConfig?.maxSize || 5}
-                    className="w-32 h-32"
-                    returnFileId={true}
-                />
+                {fp.canEdit('mainImage') ? (
+                    <SimpleImageUploader
+                        value={formData.mainImage || undefined}
+                        onChange={(fileId) => setFormData({ ...formData, mainImage: fileId })}
+                        realFolderId={imageConfig?.realFolderId || undefined}
+                        storageMode="rustfs"
+                        accept={imageConfig?.formats?.map(f => `image/${f}`).join(',') || 'image/jpeg,image/png,image/gif'}
+                        maxSize={imageConfig?.maxSize || 5}
+                        className="w-32 h-32"
+                        returnFileId={true}
+                    />
+                ) : formData.mainImage ? (
+                    <div className="w-32 h-32 rounded bg-[#1e1e1e] overflow-hidden flex items-center justify-center">
+                        <img
+                            src={getFilePreviewUrl(formData.mainImage)}
+                            alt="产品图片"
+                            className="w-full h-full object-cover"
+                        />
+                    </div>
+                ) : (
+                    <div className="w-32 h-32 rounded bg-[#1e1e1e] flex items-center justify-center text-xs text-[#8e8e8e]">
+                        无图片
+                    </div>
+                )}
             </div>
+            )}
 
+            {fp.canView('name') && (
             <div className="space-y-2">
                 <Label htmlFor="name">
                     产品名称 <span className="text-red-500">*</span>
@@ -139,10 +165,13 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     placeholder="请输入产品名称"
-                    className="bg-[#1e1e1e] border-[#1e1e1e] text-white"
+                    disabled={!fp.canEdit('name')}
+                    className="bg-[#1e1e1e] border-[#1e1e1e] text-white disabled:opacity-50"
                 />
             </div>
+            )}
 
+            {fp.canView('code') && (
             <div className="space-y-2">
                 <Label htmlFor="code">
                     产品编码 {!product && <span className="text-red-500">*</span>}
@@ -152,7 +181,7 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
                     value={formData.code}
                     onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                     placeholder="留空则自动生成，也可手动输入"
-                    disabled={!!product}
+                    disabled={!!product || !fp.canEdit('code')}
                     className="bg-[#1e1e1e] border-[#1e1e1e] text-white disabled:opacity-50"
                 />
                 {!product && (
@@ -162,7 +191,9 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
                     <p className="text-xs text-[#8e8e8e]">产品编码创建后不可修改</p>
                 )}
             </div>
+            )}
 
+            {fp.canView('pricingMode') && (
             <div className="space-y-2">
                 <Label htmlFor="pricingMode">计价方式</Label>
                 <DictSelect
@@ -172,10 +203,13 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
                         setFormData({ ...formData, pricingMode: value })
                     }
                     placeholder="选择计价方式"
+                    disabled={!fp.canEdit('pricingMode')}
                     className="bg-[#1e1e1e] border-[#1e1e1e] text-white"
                 />
             </div>
+            )}
 
+            {fp.canView('brand') && (
             <div className="space-y-2">
                 <Label htmlFor="brand">品牌</Label>
                 <Input
@@ -183,15 +217,19 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
                     value={formData.brand}
                     onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
                     placeholder="请输入品牌名称"
-                    className="bg-[#1e1e1e] border-[#1e1e1e] text-white"
+                    disabled={!fp.canEdit('brand')}
+                    className="bg-[#1e1e1e] border-[#1e1e1e] text-white disabled:opacity-50"
                 />
             </div>
+            )}
 
+            {fp.canView('status') && (
             <div className="space-y-2">
                 <Label htmlFor="status">状态</Label>
                 <Select
                     value={formData.status}
                     onValueChange={(value) => setFormData({ ...formData, status: value as any })}
+                    disabled={!fp.canEdit('status')}
                 >
                     <SelectTrigger className="bg-[#1e1e1e] border-[#1e1e1e] text-white">
                         <SelectValue placeholder="选择状态" />
@@ -203,7 +241,9 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
                     </SelectContent>
                 </Select>
             </div>
+            )}
 
+            {fp.canView('remark') && (
             <div className="space-y-2">
                 <Label htmlFor="remark">备注</Label>
                 <Textarea
@@ -212,9 +252,11 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
                     onChange={(e) => setFormData({ ...formData, remark: e.target.value })}
                     placeholder="请输入备注信息"
                     rows={3}
-                    className="bg-[#1e1e1e] border-[#1e1e1e] text-white resize-none"
+                    disabled={!fp.canEdit('remark')}
+                    className="bg-[#1e1e1e] border-[#1e1e1e] text-white resize-none disabled:opacity-50"
                 />
             </div>
+            )}
 
             <div className="flex justify-end gap-3 pt-4">
                 <Button

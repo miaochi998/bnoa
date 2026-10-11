@@ -9,6 +9,7 @@ import { Separator } from '@/components/ui/separator';
 import { apiClient, getAvatarUrl, getDefaultAvatarUrl } from '@/lib/api';
 import { User, UserStatus } from '@/types/user';
 import { DictTag } from '@/components/shared/DictTag';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import {
   ArrowLeft,
   Edit,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 
 export default function UserDetailPage() {
+  const fp = useFieldPermissions('user');
   const router = useRouter();
   const params = useParams();
   const userId = params.id as string;
@@ -121,20 +123,29 @@ export default function UserDetailPage() {
         <CardContent className="space-y-6">
           {/* Avatar & Name */}
           <div className="flex items-center gap-4">
+            {fp.canView('avatar') && (
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
               <img src={getAvatarUrl(user.id, user.avatar) || getDefaultAvatarUrl()} alt={user.name} className="w-full h-full object-cover" />
             </div>
+            )}
             <div>
-              <h2 className="text-xl font-semibold text-foreground">{user.name}</h2>
-              <p className="text-muted-foreground">@{user.username}</p>
+              {fp.canView('name') && (
+                <h2 className="text-xl font-semibold text-foreground">{user.name}</h2>
+              )}
+              {fp.canView('username') && (
+                <p className="text-muted-foreground">@{user.username}</p>
+              )}
             </div>
-            <DictTag typeCode="user_status" value={user.status} />
+            {fp.canView('status') && (
+              <DictTag typeCode="user_status" value={user.status} />
+            )}
           </div>
 
           <Separator className="bg-border" />
 
           {/* Contact Info */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {fp.canView('email') && (
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-primary/10">
                 <Mail className="w-4 h-4 text-primary" />
@@ -144,6 +155,8 @@ export default function UserDetailPage() {
                 <p className="text-foreground">{user.email}</p>
               </div>
             </div>
+            )}
+            {fp.canView('phone') && (
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-primary/10">
                 <Phone className="w-4 h-4 text-primary" />
@@ -153,6 +166,7 @@ export default function UserDetailPage() {
                 <p className="text-foreground">{user.phone || '未设置'}</p>
               </div>
             </div>
+            )}
           </div>
 
           <Separator className="bg-border" />

@@ -30,6 +30,7 @@ import {
 import {
     MatrixResult, TentativeMap, PlanData,
 } from './types';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface LinkOption {
     id: string;
@@ -42,6 +43,7 @@ interface LinkOption {
 }
 
 export default function PricingPage() {
+    const fp = useFieldPermissions('pricing');
     const searchParams = useSearchParams();
     const router = useRouter();
     const planLoadedRef = useRef(false);
@@ -122,6 +124,14 @@ export default function PricingPage() {
     };
 
     const handleSave = async () => {
+        if (
+            !fp.canEdit('name')
+            || !fp.canEdit('profitRates')
+            || !fp.canEdit('commissionRate')
+        ) {
+            alert('没有保存定价方案所需的字段编辑权限（方案名称/利润率/平台佣金率）');
+            return;
+        }
         if (!planName.trim()) {
             alert('请输入方案名称'); return;
         }
@@ -159,6 +169,11 @@ export default function PricingPage() {
     };
 
     const handleLoadPlan = async (plan: PlanData) => {
+        // 加载方案会把利润率/佣金率/税费率回填到计算参数，缺任一查看权都算不出来
+        if (!fp.canView('profitRates') || !fp.canView('commissionRate')) {
+            alert('没有定价方案「利润率」或「平台佣金率」的查看权限，无法加载该方案');
+            return;
+        }
         setLinkId(plan.linkId);
         setSelectedRates(
             (plan.profitRates || []).map(

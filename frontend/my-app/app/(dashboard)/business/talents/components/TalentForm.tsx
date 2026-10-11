@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { DictSelect } from '@/components/shared/DictSelect';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface TalentFormProps {
     talent: any | null;
@@ -19,6 +20,7 @@ export function TalentForm({
     onSuccess,
     onCancel,
 }: TalentFormProps) {
+    const fp = useFieldPermissions('talent');
     const [loading, setLoading] = useState(false);
     const [name, setName] = useState(talent?.name || '');
     const [wechat, setWechat] = useState(
@@ -38,21 +40,26 @@ export function TalentForm({
     );
 
     const handleSubmit = async () => {
-        if (!name.trim()) {
+        if (fp.canEdit('name') && !name.trim()) {
             alert('请输入达人名称');
             return;
         }
+        // 只提交「可编辑」字段
+        const data: any = {};
+        if (fp.canEdit('name')) data.name = name.trim();
+        if (fp.canEdit('status')) data.status = status;
+        if (fp.canEdit('level')) data.level = level;
+        if (fp.canEdit('wechat') && wechat.trim()) data.wechat = wechat.trim();
+        if (fp.canEdit('phone') && phone.trim()) data.phone = phone.trim();
+        if (fp.canEdit('remark') && remark.trim()) data.remark = remark.trim();
+
+        if (Object.keys(data).length === 0) {
+            alert('你没有达人字段的编辑权限');
+            return;
+        }
+
         setLoading(true);
         try {
-            const data: any = {
-                name: name.trim(),
-                status,
-                level,
-            };
-            if (wechat.trim()) data.wechat = wechat.trim();
-            if (phone.trim()) data.phone = phone.trim();
-            if (remark.trim()) data.remark = remark.trim();
-
             if (talent) {
                 await apiClient.updateTalent(
                     talent.id,
@@ -75,6 +82,7 @@ export function TalentForm({
 
     return (
         <div className="space-y-4">
+            {fp.canView('name') && (
             <div>
                 <Label className="text-[#8e8e8e]">
                     达人名称 *
@@ -82,11 +90,14 @@ export function TalentForm({
                 <Input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
+                    disabled={!fp.canEdit('name')}
                     placeholder="请输入达人名称"
-                    className="mt-1 bg-[#1e1e1e] border-[#3e3e3e] text-white"
+                    className="mt-1 bg-[#1e1e1e] border-[#3e3e3e] text-white disabled:opacity-50"
                 />
             </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
+                {fp.canView('wechat') && (
                 <div>
                     <Label className="text-[#8e8e8e]">
                         微信号
@@ -96,10 +107,13 @@ export function TalentForm({
                         onChange={(e) =>
                             setWechat(e.target.value)
                         }
+                        disabled={!fp.canEdit('wechat')}
                         placeholder="请输入微信号"
-                        className="mt-1 bg-[#1e1e1e] border-[#3e3e3e] text-white"
+                        className="mt-1 bg-[#1e1e1e] border-[#3e3e3e] text-white disabled:opacity-50"
                     />
                 </div>
+                )}
+                {fp.canView('phone') && (
                 <div>
                     <Label className="text-[#8e8e8e]">
                         手机号
@@ -109,12 +123,15 @@ export function TalentForm({
                         onChange={(e) =>
                             setPhone(e.target.value)
                         }
+                        disabled={!fp.canEdit('phone')}
                         placeholder="请输入手机号"
-                        className="mt-1 bg-[#1e1e1e] border-[#3e3e3e] text-white"
+                        className="mt-1 bg-[#1e1e1e] border-[#3e3e3e] text-white disabled:opacity-50"
                     />
                 </div>
+                )}
             </div>
             <div className="grid grid-cols-2 gap-4">
+                {fp.canView('status') && (
                 <div>
                     <Label className="text-[#8e8e8e]">
                         状态
@@ -124,10 +141,13 @@ export function TalentForm({
                             typeCode="talent_status"
                             value={status}
                             onChange={setStatus}
+                            disabled={!fp.canEdit('status')}
                             className="w-full bg-[#1e1e1e] border-[#3e3e3e] text-white"
                         />
                     </div>
                 </div>
+                )}
+                {fp.canView('level') && (
                 <div>
                     <Label className="text-[#8e8e8e]">
                         等级
@@ -137,11 +157,14 @@ export function TalentForm({
                             typeCode="talent_level"
                             value={level}
                             onChange={setLevel}
+                            disabled={!fp.canEdit('level')}
                             className="w-full bg-[#1e1e1e] border-[#3e3e3e] text-white"
                         />
                     </div>
                 </div>
+                )}
             </div>
+            {fp.canView('remark') && (
             <div>
                 <Label className="text-[#8e8e8e]">
                     备注
@@ -151,11 +174,13 @@ export function TalentForm({
                     onChange={(e) =>
                         setRemark(e.target.value)
                     }
+                    disabled={!fp.canEdit('remark')}
                     placeholder="请输入备注"
                     rows={3}
-                    className="mt-1 bg-[#1e1e1e] border-[#3e3e3e] text-white"
+                    className="mt-1 bg-[#1e1e1e] border-[#3e3e3e] text-white disabled:opacity-50"
                 />
             </div>
+            )}
             <div className="flex justify-end gap-3 pt-2">
                 <Button
                     variant="outline"

@@ -1,8 +1,8 @@
+// 与后端 Prisma UserStatus 枚举保持一致（只有三个状态；原 DELETED 数据库中不存在，已移除）
 export enum UserStatus {
   ACTIVE = 'ACTIVE',
   INACTIVE = 'INACTIVE',
   SUSPENDED = 'SUSPENDED',
-  DELETED = 'DELETED',
 }
 
 export type SortOrder = 'asc' | 'desc';

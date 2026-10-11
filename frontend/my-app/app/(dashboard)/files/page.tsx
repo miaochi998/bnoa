@@ -1,6 +1,8 @@
 'use client'
 
 import { getApiBaseUrl } from '@/lib/config';
+import { usePermissionStore } from '@/lib/stores/permission-store';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
@@ -140,6 +142,7 @@ type FileSizeFilter = 'all' | 'lt1mb' | '1to10mb' | '10to100mb' | 'gt100mb' | 'c
 type DateFilter = 'all' | 'today' | 'week' | 'month' | 'year' | 'custom';
 
 export default function FilesPage() {
+  const fp = useFieldPermissions('file');
   const router = useRouter();
   const uploadQueue = useUploadQueueContext();
   const { user } = useAuth();
@@ -570,11 +573,17 @@ export default function FilesPage() {
 
   // 获取真实文件夹列表
   const fetchRealFolders = async () => {
+    // 无「真实文件夹管理」权限时不发请求，避免 403 干扰控制台
+    if (!usePermissionStore.getState().hasPermission('folder:manage')) {
+      setRealFolders([]);
+      return;
+    }
     try {
       const data = await apiClient.getRealFolders();
       setRealFolders(data);
-    } catch (error) {
-      console.error('Failed to fetch real folders:', error);
+    } catch {
+      // 无「真实文件夹管理」权限属于正常情况，静默处理（不再往控制台抛错）
+      setRealFolders([]);
     }
   };
 
@@ -1389,11 +1398,11 @@ export default function FilesPage() {
                               <div className="flex items-center gap-3">
                                 {getFileIcon(file.mimeType)}
                                 <div className="min-w-0">
-                                  <p className="text-foreground font-medium truncate max-w-[200px]" title={file.name}>
-                                    {file.name}
+                                  <p className="text-foreground font-medium truncate max-w-[200px]" title={fp.canView('name') ? file.name : ''}>
+                                    {fp.canView('name') ? file.name : '******'}
                                   </p>
                                   <p className="text-xs text-muted-foreground">
-                                    {file.extension.toLowerCase()}
+                                    {fp.canView('extension') ? file.extension.toLowerCase() : '******'}
                                   </p>
                                 </div>
                               </div>
@@ -1408,17 +1417,17 @@ export default function FilesPage() {
                                file.mimeType.includes('zip') || file.mimeType.includes('rar') ? '压缩包' : '文件'}
                             </TableCell>
                             <TableCell className="text-muted-foreground text-sm">
-                              {formatFileSize(file.size)}
+                              {fp.canView('size') ? formatFileSize(file.size) : '******'}
                             </TableCell>
                             <TableCell className="text-muted-foreground text-sm">
-                              {formatDate(file.createdAt)}
+                              {fp.canView('createdAt') ? formatDate(file.createdAt) : '******'}
                             </TableCell>
                             <TableCell className="text-muted-foreground text-sm">
-                              {formatDate(file.updatedAt || file.createdAt)}
+                              {fp.canView('createdAt') ? formatDate(file.updatedAt || file.createdAt) : '******'}
                             </TableCell>
                             <TableCell className="text-muted-foreground text-sm">
-                              <span className="truncate max-w-[100px] block" title={file.folderName || '根目录'}>
-                                {file.folderName || '根目录'}
+                              <span className="truncate max-w-[100px] block" title={fp.canView('folderId') ? (file.folderName || '根目录') : ''}>
+                                {fp.canView('folderId') ? (file.folderName || '根目录') : '******'}
                               </span>
                             </TableCell>
                             <TableCell onClick={(e) => e.stopPropagation()}>
@@ -1523,11 +1532,11 @@ export default function FilesPage() {
 
                               {/* 文件信息 */}
                               <div className="p-3 bg-card/80">
-                                <p className="text-sm font-medium text-foreground truncate text-center" title={file.name}>
-                                  {file.name}
+                                <p className="text-sm font-medium text-foreground truncate text-center" title={fp.canView('name') ? file.name : ''}>
+                                  {fp.canView('name') ? file.name : '******'}
                                 </p>
                                 <p className="text-xs text-muted-foreground text-center mt-1">
-                                  {formatFileSize(file.size)}
+                                  {fp.canView('size') ? formatFileSize(file.size) : '******'}
                                 </p>
                               </div>
                             </div>
@@ -1636,11 +1645,11 @@ export default function FilesPage() {
 
                               {/* 文件信息 */}
                               <div className="p-1.5 bg-card/80">
-                                <p className="text-xs font-medium text-foreground truncate text-center" title={file.name}>
-                                  {file.name}
+                                <p className="text-xs font-medium text-foreground truncate text-center" title={fp.canView('name') ? file.name : ''}>
+                                  {fp.canView('name') ? file.name : '******'}
                                 </p>
                                 <p className="text-[10px] text-muted-foreground text-center">
-                                  {formatFileSize(file.size)}
+                                  {fp.canView('size') ? formatFileSize(file.size) : '******'}
                                 </p>
                               </div>
                             </div>

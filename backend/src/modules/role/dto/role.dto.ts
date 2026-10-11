@@ -197,6 +197,8 @@ export interface RoleInfo {
   status: RoleStatus;
   permissionCount: number;
   userCount: number;
+  /** 是否系统内置角色（字段权限注册表登记了该字段，需返回才能真正生效） */
+  isSystem?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

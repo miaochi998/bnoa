@@ -26,6 +26,7 @@ import {
 import { DictSelect } from '@/components/shared/DictSelect';
 import { DictTag } from '@/components/shared/DictTag';
 import { PermissionGate } from '@/components/PermissionGate';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import {
     Search,
     Plus,
@@ -52,6 +53,7 @@ interface Pagination {
 }
 
 export default function TalentsPage() {
+    const fp = useFieldPermissions('talent');
     const router = useRouter();
     const [talents, setTalents] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
@@ -369,21 +371,31 @@ export default function TalentsPage() {
                             <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">
                                 达人
                             </th>
-                            <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">
-                                联系方式
-                            </th>
-                            <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">
-                                平台
-                            </th>
-                            <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">
-                                状态
-                            </th>
-                            <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">
-                                等级
-                            </th>
-                            <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">
-                                负责人
-                            </th>
+                            {(fp.canView('wechat') || fp.canView('phone')) && (
+                                <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">
+                                    联系方式
+                                </th>
+                            )}
+                            {fp.canView('platform.nickname') && (
+                                <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">
+                                    平台
+                                </th>
+                            )}
+                            {fp.canView('status') && (
+                                <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">
+                                    状态
+                                </th>
+                            )}
+                            {fp.canView('level') && (
+                                <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">
+                                    等级
+                                </th>
+                            )}
+                            {fp.canView('managerId') && (
+                                <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">
+                                    负责人
+                                </th>
+                            )}
                             <th className="px-4 py-3 text-left text-sm font-medium text-[#8e8e8e]">
                                 操作
                             </th>
@@ -691,6 +703,7 @@ function TalentRow({
     onFlag: (color: string) => void;
     onView: () => void;
 }) {
+    const fp = useFieldPermissions('talent');
     const flag = talent.flags?.[0];
     return (
         <tr className="border-t border-[#1e1e1e] hover:bg-[#363636]">
@@ -707,18 +720,22 @@ function TalentRow({
                     className="text-white font-medium cursor-pointer hover:text-[#409fff]"
                     onClick={onView}
                 >
-                    {talent.name}
+                    {fp.canView('name') ? (talent.name ?? '') : '******'}
                 </span>
             </td>
+            {(fp.canView('wechat') || fp.canView('phone')) && (
             <td className="px-4 py-3 text-[#8e8e8e] text-sm">
-                {talent.wechat && (
+                {fp.canView('wechat') && talent.wechat && (
                     <div>微信: {talent.wechat}</div>
                 )}
-                {talent.phone && (
+                {fp.canView('phone') && talent.phone && (
                     <div>手机: {talent.phone}</div>
                 )}
-                {!talent.wechat && !talent.phone && '-'}
+                {!(fp.canView('wechat') && talent.wechat)
+                    && !(fp.canView('phone') && talent.phone) && '-'}
             </td>
+            )}
+            {fp.canView('platform.nickname') && (
             <td className="px-4 py-3">
                 <div className="flex flex-wrap gap-1">
                     {talent.platforms?.map((p: any) => (
@@ -738,21 +755,28 @@ function TalentRow({
                         '-'}
                 </div>
             </td>
+            )}
+            {fp.canView('status') && (
             <td className="px-4 py-3">
                 <DictTag
                     typeCode="talent_status"
                     value={talent.status}
                 />
             </td>
+            )}
+            {fp.canView('level') && (
             <td className="px-4 py-3">
                 <DictTag
                     typeCode="talent_level"
                     value={talent.level}
                 />
             </td>
+            )}
+            {fp.canView('managerId') && (
             <td className="px-4 py-3 text-[#8e8e8e]">
                 {talent.manager?.name || '-'}
             </td>
+            )}
             <td className="px-4 py-3">
                 <div className="flex items-center gap-2">
                     <button

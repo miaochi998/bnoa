@@ -5,9 +5,10 @@ import {
     ConsumableSupplierController,
 } from './consumable.controller';
 import { AuthModule } from '../auth/auth.module';
+import { RoleModule } from '../role/role.module';
 
 @Module({
-    imports: [AuthModule],
+    imports: [AuthModule, RoleModule],
     controllers: [
         ConsumableController,
         ConsumableSupplierController,

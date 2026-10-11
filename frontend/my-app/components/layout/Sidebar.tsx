@@ -103,7 +103,7 @@ const menuItems: MenuItem[] = [
         title: '文件管理设置',
         href: '/settings/file-storage',
         icon: HardDrive,
-        permission: 'config:list',
+        permission: 'file-storage:manage',
       },
     ],
   },
@@ -141,37 +141,37 @@ const menuItems: MenuItem[] = [
   {
     title: '系统配置',
     icon: Settings,
-    permission: 'config:list',
+    // 不设总码：由下面的子菜单各自决定是否显示（避免 5 个模块共用一个码）
     children: [
       {
         title: '系统参数',
         href: '/settings',
         icon: Settings,
-        permission: 'config:list',
+        permission: 'system:config',
       },
       {
         title: 'AI模型管理',
         href: '/settings/ai-models',
         icon: Bot,
-        permission: 'config:list',
+        permission: 'ai-model:manage',
       },
       {
         title: '验证码设置',
         href: '/settings/captcha',
         icon: Fingerprint,
-        permission: 'config:list',
+        permission: 'captcha:manage',
       },
       {
         title: '数据字典',
         href: '/settings/dictionary',
         icon: BookOpen,
-        permission: 'dictionary:list',
+        permission: 'dictionary:manage',
       },
       {
         title: '邮件设置',
         href: '/settings/email',
         icon: Mail,
-        permission: 'config:list',
+        permission: 'email:manage',
       },
       {
         title: '通知管理',
@@ -183,13 +183,14 @@ const menuItems: MenuItem[] = [
         title: '记事本设置',
         href: '/settings/notebook',
         icon: StickyNote,
-        permission: 'config:list',
+        permission: 'notebook:manage',
       },
       {
         title: '导入导出',
         href: '/settings/export-import',
         icon: ArrowUpDown,
-        permission: 'export:list',
+        // 原来写的是 export:list —— 该权限码根本不存在，导致此菜单永不显示
+        permission: 'export-import:manage',
       },
       {
         title: '系统升级',

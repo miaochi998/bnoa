@@ -130,10 +130,25 @@ export class SkuService {
 
     // ==================== CRUD ====================
 
-    async create(dto: CreateSkuDto, userId: string) {
+    /**
+     * 创建 SKU
+     * @param allowedShopIds 数据范围限定：非空时目标链接必须属于可见店铺
+     */
+    async create(
+        dto: CreateSkuDto,
+        userId: string,
+        allowedShopIds?: string[],
+    ) {
         const link =
             await this.prisma.productLink.findFirst({
-                where: { id: dto.linkId, deletedAt: null },
+                where: {
+                    AND: [
+                        { id: dto.linkId, deletedAt: null },
+                        ...(allowedShopIds
+                            ? [{ shopId: { in: allowedShopIds } }]
+                            : []),
+                    ],
+                },
             });
         if (!link) {
             throw new NotFoundException('链接不存在');
@@ -185,16 +200,25 @@ export class SkuService {
         await this.calculateAndUpdateCost(sku.id);
 
         this.logger.log(`SKU创建成功: ${sku.name}`);
-        return this.findById(sku.id);
+        return this.findById(sku.id, allowedShopIds);
     }
 
     async update(
         id: string,
         dto: UpdateSkuDto,
         userId: string,
+        allowedShopIds?: string[],
     ) {
         const existing = await this.prisma.sku.findFirst({
-            where: { id, deletedAt: null },
+            where: {
+                AND: [
+                    { id, deletedAt: null },
+                    // 数据范围限定（经 链接→店铺）：越权等同不存在
+                    ...(allowedShopIds
+                        ? [{ productLink: { shopId: { in: allowedShopIds } } }]
+                        : []),
+                ],
+            },
         });
         if (!existing) {
             throw new NotFoundException('SKU不存在');
@@ -262,12 +286,23 @@ export class SkuService {
         await this.calculateAndUpdateCost(id);
 
         this.logger.log(`SKU更新成功: ${existing.name}`);
-        return this.findById(id);
+        return this.findById(id, allowedShopIds);
     }
 
-    async delete(id: string, userId: string) {
+    /**
+     * 删除 SKU
+     * @param allowedShopIds 数据范围限定：越权等同不存在（404）
+     */
+    async delete(id: string, userId: string, allowedShopIds?: string[]) {
         const sku = await this.prisma.sku.findFirst({
-            where: { id, deletedAt: null },
+            where: {
+                AND: [
+                    { id, deletedAt: null },
+                    ...(allowedShopIds
+                        ? [{ productLink: { shopId: { in: allowedShopIds } } }]
+                        : []),
+                ],
+            },
         });
         if (!sku) {
             throw new NotFoundException('SKU不存在');
@@ -284,9 +319,17 @@ export class SkuService {
         this.logger.log(`SKU删除成功: ${sku.name}`);
     }
 
-    async findById(id: string) {
+    async findById(id: string, allowedShopIds?: string[]) {
         const sku = await this.prisma.sku.findFirst({
-            where: { id, deletedAt: null },
+            where: {
+                AND: [
+                    { id, deletedAt: null },
+                    // 数据范围限定（经 链接→店铺）：越权等同不存在（404）
+                    ...(allowedShopIds
+                        ? [{ productLink: { shopId: { in: allowedShopIds } } }]
+                        : []),
+                ],
+            },
             include: SKU_INCLUDE,
         });
         if (!sku) {
@@ -295,12 +338,21 @@ export class SkuService {
         return this.mapSku(sku);
     }
 
-    async findAll(query: SkuQueryDto) {
+    /**
+     * SKU 列表
+     * @param allowedShopIds 数据范围限定：非空时只看这些店铺下的 SKU（经 链接→店铺 归属）
+     */
+    async findAll(query: SkuQueryDto, allowedShopIds?: string[]) {
         const { keyword, linkId, status } = query;
         const page = query.page ?? 1;
         const pageSize = query.pageSize ?? 10;
 
         const where: any = { deletedAt: null };
+
+        // 数据范围限定：运营只能看到自己负责店铺的 SKU
+        if (allowedShopIds) {
+            where.productLink = { shopId: { in: allowedShopIds } };
+        }
 
         if (linkId) where.linkId = linkId;
         if (status) where.status = status;
@@ -336,25 +388,41 @@ export class SkuService {
         };
     }
 
-    async recalculate(id: string, userId: string) {
+    /**
+     * 重算 SKU 成本
+     * @param allowedShopIds 数据范围限定：越权等同不存在（404）
+     */
+    async recalculate(id: string, userId: string, allowedShopIds?: string[]) {
         const sku = await this.prisma.sku.findFirst({
-            where: { id, deletedAt: null },
+            where: {
+                AND: [
+                    { id, deletedAt: null },
+                    ...(allowedShopIds
+                        ? [{ productLink: { shopId: { in: allowedShopIds } } }]
+                        : []),
+                ],
+            },
         });
         if (!sku) {
             throw new NotFoundException('SKU不存在');
         }
 
         await this.calculateAndUpdateCost(id);
-        return this.findById(id);
+        return this.findById(id, allowedShopIds);
     }
 
     // ==================== 辅助接口 ====================
 
-    async getLinksForSelect() {
+    /**
+     * 链接下拉
+     * @param allowedShopIds 数据范围限定：非空时只返回可见店铺下的链接
+     */
+    async getLinksForSelect(allowedShopIds?: string[]) {
         return this.prisma.productLink.findMany({
             where: {
                 deletedAt: null,
                 status: { in: ['DRAFT', 'ON_SALE'] },
+                ...(allowedShopIds ? { shopId: { in: allowedShopIds } } : {}),
             },
             select: {
                 id: true,
@@ -403,7 +471,24 @@ export class SkuService {
         };
     }
 
-    async reorderSkus(ids: string[]) {
+    /**
+     * 批量更新排序
+     * @param allowedShopIds 数据范围限定：非空时全部目标 SKU 都必须可见（否则整体拒绝）
+     */
+    async reorderSkus(ids: string[], allowedShopIds?: string[]) {
+        if (allowedShopIds) {
+            const owned = await this.prisma.sku.count({
+                where: {
+                    id: { in: ids },
+                    deletedAt: null,
+                    productLink: { shopId: { in: allowedShopIds } },
+                },
+            });
+            if (owned !== ids.length) {
+                throw new NotFoundException('SKU不存在');
+            }
+        }
+
         const maxOrder = await this.prisma.sku.aggregate({
             _max: { sortOrder: true },
         });

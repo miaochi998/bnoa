@@ -191,6 +191,15 @@ export class CreateAuditLogDto {
  */
 export class QueryAuditLogDto {
   @ApiProperty({
+    description: '关键字（模糊匹配操作描述、操作人）',
+    example: '删除',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  keyword?: string;
+
+  @ApiProperty({
     description: '操作类型',
     enum: AuditAction,
     example: AuditAction.CREATE,

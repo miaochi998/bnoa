@@ -13,6 +13,7 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Plus, Trash2 } from 'lucide-react';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface LinkOption {
     id: string;
@@ -53,6 +54,7 @@ export function SkuForm({
     onSuccess,
     onCancel,
 }: SkuFormProps) {
+    const fp = useFieldPermissions('sku');
     const [linkId, setLinkId] = useState(
         sku?.link?.id || '',
     );
@@ -156,17 +158,21 @@ export function SkuForm({
     ) => {
         e.preventDefault();
 
-        if (!linkId) {
+        if (!sku && !fp.canEdit('linkId')) {
+            alert('没有「所属链接」的编辑权限，无法创建 SKU');
+            return;
+        }
+        if (fp.canEdit('linkId') && !linkId) {
             alert('请选择所属链接');
             return;
         }
-        if (!name.trim()) {
+        if (fp.canEdit('name') && !name.trim()) {
             alert('请输入SKU名称');
             return;
         }
         if (
-            !weight
-            || parseFloat(weight) <= 0
+            fp.canEdit('weight')
+            && (!weight || parseFloat(weight) <= 0)
         ) {
             alert('请输入有效的重量');
             return;
@@ -175,34 +181,43 @@ export function SkuForm({
         const validFps = fpItems.filter(
             (item) => item.finishedProductId,
         );
-        if (validFps.length === 0) {
+        if (fp.canEdit('finishedProducts') && validFps.length === 0) {
             alert('请至少选择一个成品');
+            return;
+        }
+
+        // 只提交「可编辑」字段：被配成只读/隐藏的字段不发送，避免误改或 400
+        const submitData: Record<string, any> = {};
+        if (fp.canEdit('name')) submitData.name = name.trim();
+        if (fp.canEdit('type')) submitData.type = type;
+        if (fp.canEdit('weight')) submitData.weight = parseFloat(weight);
+        if (fp.canEdit('miscFee')) submitData.miscFee = parseFloat(miscFee) || 0;
+        if (fp.canEdit('comboPackageFee')) {
+            submitData.comboPackageFee = parseFloat(comboPackageFee) || 0;
+        }
+        if (fp.canEdit('defaultExpressCompanyId')) {
+            submitData.defaultExpressCompanyId = expressId || undefined;
+        }
+        if (fp.canEdit('finishedProducts')) {
+            submitData.finishedProductItems = validFps;
+        }
+        if (fp.canEdit('status')) submitData.status = status;
+        if (fp.canEdit('remark')) submitData.remark = remark || undefined;
+
+        if (Object.keys(submitData).length === 0) {
+            alert('你没有 SKU 字段的编辑权限');
             return;
         }
 
         setLoading(true);
         try {
-            const submitData: any = {
-                name: name.trim(),
-                type,
-                weight: parseFloat(weight),
-                miscFee: parseFloat(miscFee) || 0,
-                comboPackageFee:
-                    parseFloat(comboPackageFee) || 0,
-                defaultExpressCompanyId:
-                    expressId || undefined,
-                finishedProductItems: validFps,
-                status,
-                remark: remark || undefined,
-            };
-
             if (sku) {
                 await apiClient.updateSku(
                     sku.id,
                     submitData,
                 );
             } else {
-                submitData.linkId = linkId;
+                if (fp.canEdit('linkId')) submitData.linkId = linkId;
                 await apiClient.createSku(submitData);
             }
             onSuccess();
@@ -226,6 +241,7 @@ export function SkuForm({
             className="space-y-4 max-h-[70vh] overflow-y-auto pr-2"
         >
             {/* 所属链接 */}
+            {fp.canView('linkId') && (
             <div className="space-y-2">
                 <Label>
                     所属链接
@@ -236,7 +252,7 @@ export function SkuForm({
                 <Select
                     value={linkId}
                     onValueChange={setLinkId}
-                    disabled={!!sku}
+                    disabled={!!sku || !fp.canEdit('linkId')}
                 >
                     <SelectTrigger className="bg-[#1e1e1e] border-[#1e1e1e] text-white">
                         <SelectValue placeholder="选择链接" />
@@ -266,9 +282,11 @@ export function SkuForm({
                     </p>
                 )}
             </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
                 {/* SKU名称 */}
+                {fp.canView('name') && (
                 <div className="space-y-2">
                     <Label>
                         SKU名称
@@ -281,11 +299,14 @@ export function SkuForm({
                         onChange={(e) =>
                             setName(e.target.value)}
                         placeholder="如：压缩款袋装20片"
-                        className="bg-[#1e1e1e] border-[#1e1e1e] text-white"
+                        disabled={!fp.canEdit('name')}
+                        className="bg-[#1e1e1e] border-[#1e1e1e] text-white disabled:opacity-50"
                     />
                 </div>
+                )}
 
                 {/* 类型 */}
+                {fp.canView('type') && (
                 <div className="space-y-2">
                     <Label>
                         SKU类型
@@ -296,6 +317,7 @@ export function SkuForm({
                     <Select
                         value={type}
                         onValueChange={setType}
+                        disabled={!fp.canEdit('type')}
                     >
                         <SelectTrigger className="bg-[#1e1e1e] border-[#1e1e1e] text-white">
                             <SelectValue />
@@ -316,9 +338,11 @@ export function SkuForm({
                         </SelectContent>
                     </Select>
                 </div>
+                )}
             </div>
 
             {/* 成品关联 */}
+            {fp.canView('finishedProducts') && (
             <div className="space-y-2">
                 <div className="flex items-center justify-between">
                     <Label>
@@ -332,6 +356,7 @@ export function SkuForm({
                         variant="ghost"
                         size="sm"
                         onClick={addFpItem}
+                        disabled={!fp.canEdit('finishedProducts')}
                         className="text-[#409fff] hover:text-[#409fff]/80 h-7"
                     >
                         <Plus className="w-3 h-3 mr-1" />
@@ -356,6 +381,7 @@ export function SkuForm({
                                         v === 'none'
                                             ? '' : v,
                                     )}
+                                disabled={!fp.canEdit('finishedProducts')}
                             >
                                 <SelectTrigger className="flex-1 min-w-0 bg-[#1e1e1e] border-[#1e1e1e] text-white">
                                     <SelectValue placeholder="选择成品" />
@@ -396,8 +422,9 @@ export function SkuForm({
                                         'quantity',
                                         e.target.value,
                                     )}
-                                className="w-20 shrink-0 bg-[#1e1e1e] border-[#1e1e1e] text-white text-center"
+                                className="w-20 shrink-0 bg-[#1e1e1e] border-[#1e1e1e] text-white text-center disabled:opacity-50"
                                 placeholder="数量"
+                                disabled={!fp.canEdit('finishedProducts')}
                             />
                             {fpItems.length > 1 && (
                                 <Button
@@ -415,9 +442,11 @@ export function SkuForm({
                     ))}
                 </div>
             </div>
+            )}
 
             <div className="grid grid-cols-3 gap-4">
                 {/* 重量 */}
+                {fp.canView('weight') && (
                 <div className="space-y-2">
                     <Label>
                         重量(kg)
@@ -433,11 +462,14 @@ export function SkuForm({
                         onChange={(e) =>
                             setWeight(e.target.value)}
                         placeholder="0.000"
-                        className="bg-[#1e1e1e] border-[#1e1e1e] text-white"
+                        disabled={!fp.canEdit('weight')}
+                        className="bg-[#1e1e1e] border-[#1e1e1e] text-white disabled:opacity-50"
                     />
                 </div>
+                )}
 
                 {/* 综合费用 */}
+                {fp.canView('miscFee') && (
                 <div className="space-y-2">
                     <Label>综合费用</Label>
                     <Input
@@ -448,11 +480,14 @@ export function SkuForm({
                         onChange={(e) =>
                             setMiscFee(e.target.value)}
                         placeholder="0.000"
-                        className="bg-[#1e1e1e] border-[#1e1e1e] text-white"
+                        disabled={!fp.canEdit('miscFee')}
+                        className="bg-[#1e1e1e] border-[#1e1e1e] text-white disabled:opacity-50"
                     />
                 </div>
+                )}
 
                 {/* 组合包装费 */}
+                {fp.canView('comboPackageFee') && (
                 <div className="space-y-2">
                     <Label>组合包装费</Label>
                     <Input
@@ -465,13 +500,16 @@ export function SkuForm({
                                 e.target.value,
                             )}
                         placeholder="0.000"
-                        className="bg-[#1e1e1e] border-[#1e1e1e] text-white"
+                        disabled={!fp.canEdit('comboPackageFee')}
+                        className="bg-[#1e1e1e] border-[#1e1e1e] text-white disabled:opacity-50"
                     />
                 </div>
+                )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
                 {/* 默认快递公司 */}
+                {fp.canView('defaultExpressCompanyId') && (
                 <div className="space-y-2">
                     <Label>默认快递公司</Label>
                     <Select
@@ -480,6 +518,7 @@ export function SkuForm({
                             setExpressId(
                                 v === 'none' ? '' : v,
                             )}
+                        disabled={!fp.canEdit('defaultExpressCompanyId')}
                     >
                         <SelectTrigger className="bg-[#1e1e1e] border-[#1e1e1e] text-white">
                             <SelectValue placeholder="选择快递公司" />
@@ -503,13 +542,16 @@ export function SkuForm({
                         </SelectContent>
                     </Select>
                 </div>
+                )}
 
                 {/* 状态 */}
+                {fp.canView('status') && (
                 <div className="space-y-2">
                     <Label>状态</Label>
                     <Select
                         value={status}
                         onValueChange={setStatus}
+                        disabled={!fp.canEdit('status')}
                     >
                         <SelectTrigger className="bg-[#1e1e1e] border-[#1e1e1e] text-white">
                             <SelectValue />
@@ -530,9 +572,11 @@ export function SkuForm({
                         </SelectContent>
                     </Select>
                 </div>
+                )}
             </div>
 
             {/* 备注 */}
+            {fp.canView('remark') && (
             <div className="space-y-2">
                 <Label>备注</Label>
                 <Input
@@ -540,9 +584,11 @@ export function SkuForm({
                     onChange={(e) =>
                         setRemark(e.target.value)}
                     placeholder="请输入备注"
-                    className="bg-[#1e1e1e] border-[#1e1e1e] text-white"
+                    disabled={!fp.canEdit('remark')}
+                    className="bg-[#1e1e1e] border-[#1e1e1e] text-white disabled:opacity-50"
                 />
             </div>
+            )}
 
             <div className="flex justify-end gap-3 pt-4">
                 <Button

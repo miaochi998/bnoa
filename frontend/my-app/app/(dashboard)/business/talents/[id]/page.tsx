@@ -16,6 +16,7 @@ import {
 import { DictTag } from '@/components/shared/DictTag';
 import { DictSelect } from '@/components/shared/DictSelect';
 import { PermissionGate } from '@/components/PermissionGate';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import {
     ArrowLeft,
     Plus,
@@ -34,6 +35,7 @@ const FLAG_COLORS: Record<string, string> = {
 };
 
 export default function TalentDetailPage() {
+    const fp = useFieldPermissions('talent');
     const params = useParams();
     const router = useRouter();
     const id = params.id as string;
@@ -209,6 +211,7 @@ export default function TalentDetailPage() {
                                     value={talent.level}
                                 />
                             </div>
+                            {fp.canView('wechat') && (
                             <div>
                                 <span className="text-[#8e8e8e]">
                                     微信：
@@ -217,6 +220,8 @@ export default function TalentDetailPage() {
                                     {talent.wechat || '-'}
                                 </span>
                             </div>
+                            )}
+                            {fp.canView('phone') && (
                             <div>
                                 <span className="text-[#8e8e8e]">
                                     手机：
@@ -225,6 +230,7 @@ export default function TalentDetailPage() {
                                     {talent.phone || '-'}
                                 </span>
                             </div>
+                            )}
                             {talent.remark && (
                                 <div className="col-span-2">
                                     <span className="text-[#8e8e8e]">
@@ -244,7 +250,7 @@ export default function TalentDetailPage() {
                             <h3 className="text-white font-medium">
                                 平台账号
                             </h3>
-                            <PermissionGate permission="talent:contact-add">
+                            <PermissionGate permission="talent:create">
                                 <Button
                                     size="sm"
                                     onClick={() => {
@@ -282,7 +288,7 @@ export default function TalentDetailPage() {
                                                         ` - ${p.nickname}`}
                                                 </div>
                                                 <div className="text-[#8e8e8e] text-xs mt-0.5">
-                                                    {p.accountId &&
+                                                    {fp.canView('platform.accountId') && p.accountId &&
                                                         `ID: ${p.accountId}`}
                                                     {p.categories
                                                         ?.length >
@@ -291,7 +297,7 @@ export default function TalentDetailPage() {
                                                 </div>
                                             </div>
                                             <div className="flex gap-1">
-                                                <PermissionGate permission="talent:contact-edit">
+                                                <PermissionGate permission="talent:update">
                                                     <button
                                                         onClick={() => {
                                                             setEditingPlatform(
@@ -306,7 +312,7 @@ export default function TalentDetailPage() {
                                                         <Edit className="w-3.5 h-3.5" />
                                                     </button>
                                                 </PermissionGate>
-                                                <PermissionGate permission="talent:contact-delete">
+                                                <PermissionGate permission="talent:delete">
                                                     <button
                                                         onClick={() =>
                                                             handleDeletePlatform(
@@ -346,7 +352,7 @@ export default function TalentDetailPage() {
                                     className="bg-[#1e1e1e] rounded p-3"
                                 >
                                     <div className="text-white text-sm whitespace-pre-wrap">
-                                        {log.content}
+                                        {fp.canView('contactLog.content') ? (log.content ?? '') : '******'}
                                     </div>
                                     <div className="text-[#8e8e8e] text-xs mt-2 flex justify-between">
                                         <span>

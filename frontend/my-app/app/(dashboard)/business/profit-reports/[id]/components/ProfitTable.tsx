@@ -6,6 +6,7 @@ import { Truck, ShoppingBag } from 'lucide-react';
 import StoreExpensePanel from './StoreExpensePanel';
 import ShippingPanel from './ShippingPanel';
 import { apiClient } from '@/lib/api';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface Props {
     report: any;
@@ -26,6 +27,7 @@ export default function ProfitTable({
     allocData, setAllocData,
     isDraft, reportId, onRefresh,
 }: Props) {
+    const fp = useFieldPermissions('profit');
     const entries: any[] = report.entries || [];
     const cats: any[] = report.allocationCategories || [];
     const [expenseEntry, setExpenseEntry] = useState<any>(null);
@@ -132,7 +134,10 @@ export default function ProfitTable({
     };
 
     // 可编辑行
-    const editRow = (label: string, field: string, tKey: string) => (
+    const editRow = (label: string, field: string, tKey: string) => {
+        const fieldKey = `entry.${field}`;
+        if (!fp.canView(fieldKey)) return null;
+        return (
         <tr className={`border-b border-border ${hoverRow}`}>
             <td className={lb}>{label}</td>
             {entries.map((e: any) => (
@@ -145,9 +150,10 @@ export default function ProfitTable({
                                 e.id, field,
                                 parseFloat(ev.target.value) || 0,
                             )}
+                            disabled={!fp.canEdit(fieldKey)}
                             className="h-7 w-full text-right text-sm
                                 border-0 bg-transparent p-0
-                                focus-visible:ring-1"
+                                focus-visible:ring-1 disabled:opacity-50"
                         />
                     ) : (
                         <span>{fmt(editData[e.id]?.[field] || 0)}</span>
@@ -158,7 +164,8 @@ export default function ProfitTable({
                 {fmt(totals[tKey] || 0)}
             </td>
         </tr>
-    );
+        );
+    };
 
     // 计算行（使用不透明背景防止滚动叠加）
     const calcRow = (
@@ -221,6 +228,7 @@ export default function ProfitTable({
                         {editRow('人工成本', 'laborCost', 'labor')}
 
                         {/* 快递费用 */}
+                        {fp.canView('amount') && (
                         <tr className={`border-b border-border ${hoverRow}`}>
                             <td className={`${lb} cursor-pointer`}>
                                 <span className="flex items-center gap-1">
@@ -241,15 +249,17 @@ export default function ProfitTable({
                                 {fmt(totals.ship || 0)}
                             </td>
                         </tr>
+                        )}
 
-                        {calcRow('毛利',
+                        {fp.canView('entry.grossProfit') && calcRow('毛利',
                             (e) => calc(e).gross,
                             totals.gross)}
-                        {calcRow('毛利率',
+                        {fp.canView('entry.grossProfit') && calcRow('毛利率',
                             (e) => calc(e).margin,
                             totals.margin, true)}
 
                         {/* 平台费用 */}
+                        {fp.canView('amount') && (
                         <tr className={`border-b border-border ${hoverRow}`}>
                             <td className={`${lb} cursor-pointer`}>
                                 <span className="flex items-center gap-1">
@@ -270,9 +280,10 @@ export default function ProfitTable({
                                 {fmt(totals.platform || 0)}
                             </td>
                         </tr>
+                        )}
 
                         {/* 分摊行 */}
-                        {cats.map((cat: any) => (
+                        {fp.canView('amount') && cats.map((cat: any) => (
                             <tr key={cat.id}
                                 className={`border-b border-border
                                     ${hoverRow}`}>
@@ -294,10 +305,11 @@ export default function ProfitTable({
                                                         ) || 0,
                                                     )
                                                 }
+                                                disabled={!fp.canEdit('amount')}
                                                 className="h-7 w-full
                                                     text-right text-sm
                                                     border-0 bg-transparent
-                                                    p-0 focus-visible:ring-1"
+                                                    p-0 focus-visible:ring-1 disabled:opacity-50"
                                             />
                                         ) : (
                                             <span>
@@ -316,16 +328,17 @@ export default function ProfitTable({
                             </tr>
                         ))}
 
-                        {calcRow('费用合计',
+                        {fp.canView('amount') && calcRow('费用合计',
                             (e) => calc(e).expense,
                             totals.expense)}
-                        {calcRow('净利润',
+                        {fp.canView('entry.netProfit') && calcRow('净利润',
                             (e) => calc(e).net,
                             totals.net, false, true)}
                     </tbody>
                 </table>
             </div>
 
+            {fp.canView('amount') && (
             <StoreExpensePanel
                 open={!!expenseEntry}
                 onOpenChange={(o) => !o && setExpenseEntry(null)}
@@ -339,6 +352,8 @@ export default function ProfitTable({
                 onSave={handleSaveExpenses}
                 readonly={!isDraft}
             />
+            )}
+            {fp.canView('amount') && (
             <ShippingPanel
                 open={!!shippingEntry}
                 onOpenChange={(o) => !o && setShippingEntry(null)}
@@ -347,6 +362,7 @@ export default function ProfitTable({
                 onSave={handleSaveShipping}
                 readonly={!isDraft}
             />
+            )}
         </>
     );
 }

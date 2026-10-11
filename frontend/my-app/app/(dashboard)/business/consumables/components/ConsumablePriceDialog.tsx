@@ -23,6 +23,7 @@ import { apiClient } from '@/lib/api';
 import { PermissionGate } from '@/components/PermissionGate';
 import { EditableCell } from '@/components/shared/EditableCell';
 import { Plus, CheckCircle, Circle, Trash2, Pencil } from 'lucide-react';
+import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface ConsumablePriceDialogProps {
     consumableId: string;
@@ -51,6 +52,7 @@ export function ConsumablePriceDialog({
     consumableName,
     onClose,
 }: ConsumablePriceDialogProps) {
+    const fp = useFieldPermissions('consumable');
     const [prices, setPrices] = useState<PriceRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
@@ -206,6 +208,14 @@ export function ConsumablePriceDialog({
         }
     };
 
+    if (!fp.canView('price.unitPrice')) {
+        return (
+            <div className="py-10 text-center text-sm text-[#8e8e8e]">
+                你没有「耗材价格」的查看权限
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
@@ -214,6 +224,7 @@ export function ConsumablePriceDialog({
                 </p>
                 <Button
                     size="sm"
+                    disabled={!fp.canEdit('price.unitPrice')}
                     onClick={() => {
                         setEditingPrice(null);
                         setFormData({
@@ -396,7 +407,8 @@ export function ConsumablePriceDialog({
                                     ) : (
                                         <button
                                             onClick={() => handleSetCurrent(p.id)}
-                                            className="hover:text-[#409fff] transition-colors"
+                                            disabled={!fp.canEdit('price.unitPrice')}
+                                            className="hover:text-[#409fff] transition-colors disabled:opacity-50"
                                             title="设为当前价格"
                                         >
                                             <Circle className="w-4 h-4 text-[#8e8e8e]" />
@@ -417,6 +429,7 @@ export function ConsumablePriceDialog({
                                             placeholder="单价"
                                             type="number"
                                             label="单价"
+                                            disabled={!fp.canEdit('price.unitPrice')}
                                         />
                                     </PermissionGate>
                                 </TableCell>
@@ -433,6 +446,7 @@ export function ConsumablePriceDialog({
                                             onSave={(newValue) => handleUpdatePriceField(p, 'batchNote', newValue)}
                                             placeholder="批次备注"
                                             maxLength={200}
+                                            disabled={!fp.canEdit('price.unitPrice')}
                                         />
                                     </PermissionGate>
                                 </TableCell>
@@ -446,6 +460,7 @@ export function ConsumablePriceDialog({
                                             variant="ghost"
                                             size="icon"
                                             onClick={() => handleEditPrice(p)}
+                                            disabled={!fp.canEdit('price.unitPrice')}
                                             className="h-7 w-7 text-[#8e8e8e] hover:text-[#409fff] hover:bg-[#409fff]/10"
                                             title="编辑"
                                         >
@@ -455,6 +470,7 @@ export function ConsumablePriceDialog({
                                             variant="ghost"
                                             size="icon"
                                             onClick={() => handleDeletePrice(p)}
+                                            disabled={!fp.canEdit('price.unitPrice')}
                                             className="h-7 w-7 text-[#8e8e8e] hover:text-red-400 hover:bg-red-500/10"
                                             title="删除"
                                         >

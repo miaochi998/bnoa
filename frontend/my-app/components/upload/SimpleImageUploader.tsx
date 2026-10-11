@@ -1,7 +1,5 @@
 'use client'
 
-import { getApiBaseUrl } from '@/lib/config';
-
 /**
  * 简化版单图上传组件
  * 用于平台Logo等单张图片上传场景
@@ -12,7 +10,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Loader2, Upload, X, ImageIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { apiClient } from '@/lib/api';
+import { apiClient, getFilePreviewUrl } from '@/lib/api';
 
 interface SimpleImageUploaderProps {
   value?: string;
@@ -177,12 +175,11 @@ export function SimpleImageUploader({
   );
 
   // 构建图片URL（如果value是fileId，则构建代理URL）
-  // 后端代理接口: /api/v1/public/files/${fileId}/preview
-  const API_BASE_URL = getApiBaseUrl();
-  const imageUrl = value?.startsWith('http') 
-    ? value 
-    : value 
-      ? `${API_BASE_URL}/public/files/${value}/preview` 
+  // 后端代理接口: /api/v1/public/files/${fileId}/preview（需登录，URL 自带 token）
+  const imageUrl = value?.startsWith('http')
+    ? value
+    : value
+      ? getFilePreviewUrl(value)
       : '';
 
   // 已上传状态

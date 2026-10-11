@@ -80,6 +80,25 @@ export class FileService {
   ) {}
 
   /**
+   * 当前用户是否超级管理员（文件归属校验的豁免）
+   *
+   * 为什么查库而不看 JWT：与 PermissionGuard 的口径保持一致（令牌最长 12h，
+   * 降权后仍可能带旧 roles）；且超管需要能访问/管理**全部**文件，
+   * 包括他人上传、未归入任何文件夹的文件（否则管理侧会看不到数据）。
+   */
+  private async isSuperAdminUser(userId: string): Promise<boolean> {
+    const rows = await this.prisma.userRole.findMany({
+      where: {
+        userId,
+        role: { isActive: true, deletedAt: null, code: 'super_admin' },
+      },
+      select: { roleId: true },
+      take: 1,
+    });
+    return rows.length > 0;
+  }
+
+  /**
    * 获取文件列表
    * @param filter 筛选条件
    * @param userId 用户ID
@@ -266,15 +285,27 @@ export class FileService {
    */
   async findById(id: string, userId: string): Promise<FileInfo> {
     const file = await this.prisma.file.findFirst({
-      where: { id, deletedAt: null },
+      // 被安全隔离（QUARANTINED）的文件对普通读取路径不可见；
+      // status 允许为 null，故显式放行 null，避免把正常旧数据一并过滤掉
+      where: {
+        id,
+        deletedAt: null,
+        OR: [{ status: null }, { status: { not: 'QUARANTINED' } }],
+      },
     });
 
     if (!file) {
       throw new NotFoundException('文件不存在');
     }
 
-    // 权限检查：文件上传者 或 对所在文件夹有 VIEW 权限
-    if (file.uploadedBy !== userId && file.folderId) {
+    // 权限检查：文件上传者 或 对所在文件夹有 VIEW 权限（超管豁免）
+    // ⚠️ 无文件夹归属（folderId=null）的文件视为私有：只有上传者本人（或超管）可访问。
+    // 原实现写成 `&& file.folderId`，folderId 为 null 时整段校验被静默跳过，
+    // 导致任何登录用户都能读写他人未归文件夹的文件。
+    if (file.uploadedBy !== userId && !(await this.isSuperAdminUser(userId))) {
+      if (!file.folderId) {
+        throw new ForbiddenException('无权访问该文件');
+      }
       await this.folderPermissionService.requirePermission(
         userId,
         file.folderId,
@@ -332,7 +363,11 @@ export class FileService {
     }
 
     // 权限检查：上传者 或 对文件夹有 EDIT 权限
-    if (file.uploadedBy !== userId && file.folderId) {
+    if (file.uploadedBy !== userId && !(await this.isSuperAdminUser(userId))) {
+      // 无文件夹归属的文件视为私有，仅上传者本人（或超管）可访问（fail-closed）
+      if (!file.folderId) {
+        throw new ForbiddenException('无权访问该文件');
+      }
       await this.folderPermissionService.requirePermission(
         userId,
         file.folderId,
@@ -386,7 +421,11 @@ export class FileService {
     }
 
     // 检查源文件夹 EDIT 权限
-    if (file.uploadedBy !== userId && file.folderId) {
+    if (file.uploadedBy !== userId && !(await this.isSuperAdminUser(userId))) {
+      // 无文件夹归属的文件视为私有，仅上传者本人（或超管）可访问（fail-closed）
+      if (!file.folderId) {
+        throw new ForbiddenException('无权访问该文件');
+      }
       await this.folderPermissionService.requirePermission(
         userId,
         file.folderId,
@@ -530,7 +569,11 @@ export class FileService {
     }
 
     // 检查源文件 VIEW 权限
-    if (file.uploadedBy !== userId && file.folderId) {
+    if (file.uploadedBy !== userId && !(await this.isSuperAdminUser(userId))) {
+      // 无文件夹归属的文件视为私有，仅上传者本人（或超管）可访问（fail-closed）
+      if (!file.folderId) {
+        throw new ForbiddenException('无权访问该文件');
+      }
       await this.folderPermissionService.requirePermission(
         userId,
         file.folderId,
@@ -639,7 +682,11 @@ export class FileService {
     }
 
     // 权限检查：上传者 或 对文件夹有 DELETE 权限
-    if (file.uploadedBy !== userId && file.folderId) {
+    if (file.uploadedBy !== userId && !(await this.isSuperAdminUser(userId))) {
+      // 无文件夹归属的文件视为私有，仅上传者本人（或超管）可访问（fail-closed）
+      if (!file.folderId) {
+        throw new ForbiddenException('无权访问该文件');
+      }
       await this.folderPermissionService.requirePermission(
         userId,
         file.folderId,
@@ -1033,7 +1080,12 @@ export class FileService {
     userId: string,
   ): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
     const file = await this.prisma.file.findFirst({
-      where: { id, deletedAt: null },
+      // 隔离文件不允许通过下载路径取回内容
+      where: {
+        id,
+        deletedAt: null,
+        OR: [{ status: null }, { status: { not: 'QUARANTINED' } }],
+      },
     });
 
     if (!file) {
@@ -1041,7 +1093,11 @@ export class FileService {
     }
 
     // 权限检查：上传者 或 对文件夹有 DOWNLOAD 权限
-    if (file.uploadedBy !== userId && file.folderId) {
+    if (file.uploadedBy !== userId && !(await this.isSuperAdminUser(userId))) {
+      // 无文件夹归属的文件视为私有，仅上传者本人（或超管）可访问（fail-closed）
+      if (!file.folderId) {
+        throw new ForbiddenException('无权访问该文件');
+      }
       await this.folderPermissionService.requirePermission(
         userId,
         file.folderId,
@@ -1079,7 +1135,12 @@ export class FileService {
     userId: string,
   ): Promise<{ buffer: Buffer; mimeType: string }> {
     const file = await this.prisma.file.findFirst({
-      where: { id, deletedAt: null },
+      // 隔离文件的缩略图同样不可取回
+      where: {
+        id,
+        deletedAt: null,
+        OR: [{ status: null }, { status: { not: 'QUARANTINED' } }],
+      },
     });
 
     if (!file) {
@@ -1087,7 +1148,11 @@ export class FileService {
     }
 
     // 权限检查：上传者 或 对文件夹有 VIEW 权限
-    if (file.uploadedBy !== userId && file.folderId) {
+    if (file.uploadedBy !== userId && !(await this.isSuperAdminUser(userId))) {
+      // 无文件夹归属的文件视为私有，仅上传者本人（或超管）可访问（fail-closed）
+      if (!file.folderId) {
+        throw new ForbiddenException('无权访问该文件');
+      }
       await this.folderPermissionService.requirePermission(
         userId,
         file.folderId,
@@ -1271,7 +1336,11 @@ export class FileService {
     }
 
     // 权限检查：上传者 或 对文件夹有 EDIT 权限
-    if (file.uploadedBy !== userId && file.folderId) {
+    if (file.uploadedBy !== userId && !(await this.isSuperAdminUser(userId))) {
+      // 无文件夹归属的文件视为私有，仅上传者本人（或超管）可访问（fail-closed）
+      if (!file.folderId) {
+        throw new ForbiddenException('无权访问该文件');
+      }
       await this.folderPermissionService.requirePermission(
         userId,
         file.folderId,
