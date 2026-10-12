@@ -533,7 +533,7 @@ export default function LaborTypesPage() {
             </Dialog>
 
             <Dialog open={rateDialogOpen} onOpenChange={setRateDialogOpen}>
-                <DialogContent className="bg-[#262626] border-[#1e1e1e] text-white sm:max-w-5xl overflow-hidden">
+                <DialogContent className="bg-[#262626] border-[#1e1e1e] text-white sm:max-w-5xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>工费标准管理</DialogTitle>
                     </DialogHeader>

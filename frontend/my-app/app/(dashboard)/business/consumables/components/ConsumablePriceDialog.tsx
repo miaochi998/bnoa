@@ -357,7 +357,7 @@ export function ConsumablePriceDialog({
                 </form>
             )}
 
-            <div className="w-full overflow-x-auto">
+            <div className="w-full overflow-x-auto max-h-[55vh] overflow-y-auto">
             <Table>
                 <TableHeader>
                     <TableRow className="border-[#3e3e3e] hover:bg-transparent">
@@ -415,8 +415,10 @@ export function ConsumablePriceDialog({
                                         </button>
                                     )}
                                 </TableCell>
-                                <TableCell className="text-white">
-                                    {p.supplier?.name || '-'}
+                                <TableCell className="text-white align-top">
+                                    <div className="max-w-[160px] whitespace-normal break-words">
+                                        {p.supplier?.name || '-'}
+                                    </div>
                                 </TableCell>
                                 <TableCell className="text-white font-medium">
                                     <PermissionGate
@@ -436,10 +438,14 @@ export function ConsumablePriceDialog({
                                 <TableCell className="text-[#8e8e8e]">
                                     {p.effectDate?.slice(0, 10) || '-'}
                                 </TableCell>
-                                <TableCell className="text-[#8e8e8e]">
+                                <TableCell className="text-[#8e8e8e] align-top">
                                     <PermissionGate
                                         permission="consumable:update"
-                                        fallback={<span>{p.batchNote || '-'}</span>}
+                                        fallback={
+                                            <div className="max-w-[260px] whitespace-normal break-words leading-relaxed">
+                                                {p.batchNote || '-'}
+                                            </div>
+                                        }
                                     >
                                         <EditableCell
                                             value={p.batchNote}
@@ -447,6 +453,7 @@ export function ConsumablePriceDialog({
                                             placeholder="批次备注"
                                             maxLength={200}
                                             disabled={!fp.canEdit('price.unitPrice')}
+                                            className="max-w-[260px] whitespace-normal break-words leading-relaxed"
                                         />
                                     </PermissionGate>
                                 </TableCell>

@@ -525,7 +525,7 @@ export default function SuppliersPage() {
 
             {/* 供应商-产品关联对话框 */}
             <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
-                <DialogContent className="bg-[#262626] border-[#1e1e1e] text-white sm:max-w-5xl">
+                <DialogContent className="bg-[#262626] border-[#1e1e1e] text-white sm:max-w-5xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>管理产品 - {selectedSupplier?.name}</DialogTitle>
                     </DialogHeader>

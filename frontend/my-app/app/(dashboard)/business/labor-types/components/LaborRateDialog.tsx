@@ -321,7 +321,7 @@ export function LaborRateDialog({
                 </form>
             )}
 
-            <div className="w-full overflow-x-auto">
+            <div className="w-full overflow-x-auto max-h-[55vh] overflow-y-auto">
             <Table>
                 <TableHeader>
                     <TableRow className="border-[#3e3e3e] hover:bg-transparent">
@@ -411,10 +411,14 @@ export function LaborRateDialog({
                                 <TableCell className="text-[#8e8e8e]">
                                     {r.effectDate?.slice(0, 10) || '-'}
                                 </TableCell>
-                                <TableCell className="text-[#8e8e8e]">
+                                <TableCell className="text-[#8e8e8e] align-top">
                                     <PermissionGate
                                         permission="labor:update"
-                                        fallback={<span>{r.remark || '-'}</span>}
+                                        fallback={
+                                            <div className="max-w-[260px] whitespace-normal break-words leading-relaxed">
+                                                {r.remark || '-'}
+                                            </div>
+                                        }
                                     >
                                         <EditableCell
                                             value={r.remark}
@@ -422,6 +426,7 @@ export function LaborRateDialog({
                                             placeholder="备注"
                                             maxLength={200}
                                             disabled={!fp.canEdit('rate.remark')}
+                                            className="max-w-[260px] whitespace-normal break-words leading-relaxed"
                                         />
                                     </PermissionGate>
                                 </TableCell>

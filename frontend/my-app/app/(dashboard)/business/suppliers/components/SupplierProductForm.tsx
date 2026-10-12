@@ -66,6 +66,11 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
+    // 分页：后端 GET /business/suppliers/products 默认 pageSize=10，
+    // 此前不传分页参数也没有翻页控件 ⇒ 关联产品超过 10 条就看不到后面的
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(20);
+    const [total, setTotal] = useState(0);
 
     // 新增/编辑关联表单
     const [showAddForm, setShowAddForm] = useState(false);
@@ -78,18 +83,31 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
 
     // 加载数据
     useEffect(() => {
-        loadSupplierProducts();
+        setPage(1); // 切换供应商时回到第一页（初始 page 已是 1，不会触发多余请求）
         // 只有具备「管理关联产品」权限时才需要产品下拉，避免无权限时产生 403
         if (hasPermission('supplier:product-manage')) loadProducts();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [supplier.id]);
 
+    // 关联列表：分页变化时重新加载
+    useEffect(() => {
+        loadSupplierProducts();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [supplier.id, page, pageSize]);
+
     const loadSupplierProducts = async () => {
         try {
+            setLoading(true);
             const data = await apiClient.getSupplierProducts({
                 supplierId: supplier.id,
+                page,
+                pageSize,
             });
-            setSupplierProducts(data.list || []);
+            const list = data.list || [];
+            setSupplierProducts(list);
+            setTotal(data.pagination?.total ?? list.length);
+            // 删掉当页最后一条后回退一页，避免停在空白页
+            if (list.length === 0 && page > 1) setPage(page - 1);
         } catch (error) {
             console.error('加载供应商产品关联失败:', error);
         } finally {
@@ -333,7 +351,7 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
             )}
 
             {/* 关联列表 */}
-            <div className="border border-[#1e1e1e] rounded-lg overflow-hidden">
+            <div className="border border-[#1e1e1e] rounded-lg overflow-hidden max-h-[55vh] overflow-y-auto">
                 <Table>
                     <TableHeader>
                         <TableRow className="border-[#1e1e1e] hover:bg-transparent">
@@ -371,13 +389,21 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
                                         <TableCell className="text-white">{sp.product.code}</TableCell>
                                     )}
                                     {fp.canView('product.name') && (
-                                        <TableCell className="text-white">{sp.product.name}</TableCell>
+                                        <TableCell className="text-white">
+                                            <div className="max-w-[220px] whitespace-normal break-words">
+                                                {sp.product.name}
+                                            </div>
+                                        </TableCell>
                                     )}
                                     {fp.canView('product.styleName') && (
                                     <TableCell className="text-white">
                                         <PermissionGate
                                             permission="supplier:product-manage"
-                                            fallback={<span>{sp.styleName || '-'}</span>}
+                                            fallback={
+                                                <div className="max-w-[200px] whitespace-normal break-words">
+                                                    {sp.styleName || '-'}
+                                                </div>
+                                            }
                                         >
                                             {fp.canEdit('product.styleName') ? (
                                             <EditableCell
@@ -385,9 +411,12 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
                                                 onSave={(newValue) => handleUpdateField(sp.id, 'styleName', newValue)}
                                                 placeholder="款式"
                                                 maxLength={100}
+                                                className="max-w-[200px] whitespace-normal break-words leading-relaxed"
                                             />
                                             ) : (
-                                                <span>{sp.styleName || '-'}</span>
+                                                <div className="max-w-[200px] whitespace-normal break-words">
+                                                    {sp.styleName || '-'}
+                                                </div>
                                             )}
                                         </PermissionGate>
                                     </TableCell>
@@ -460,6 +489,53 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
                     </TableBody>
                 </Table>
             </div>
+
+            {/* 分页 */}
+            {!loading && total > 0 && (
+                <div className="flex justify-between items-center pt-1">
+                    <div className="flex items-center gap-4">
+                        <div className="text-sm text-[#8e8e8e]">
+                            共 {total} 条记录，第 {page} / {Math.max(1, Math.ceil(total / pageSize))} 页
+                        </div>
+                        <Select
+                            value={String(pageSize)}
+                            onValueChange={(v) => {
+                                setPageSize(Number(v));
+                                setPage(1);
+                            }}
+                        >
+                            <SelectTrigger className="w-24 h-8 bg-[#1e1e1e] border-[#1e1e1e] text-white">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-[#262626] border-[#1e1e1e] text-white">
+                                <SelectItem value="20">20 条/页</SelectItem>
+                                <SelectItem value="50">50 条/页</SelectItem>
+                                <SelectItem value="100">100 条/页</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="flex gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage(page - 1)}
+                            disabled={page === 1}
+                            className="bg-[#1e1e1e] border-[#1e1e1e] text-white hover:bg-[#363636] disabled:opacity-50"
+                        >
+                            上一页
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage(page + 1)}
+                            disabled={page >= Math.ceil(total / pageSize)}
+                            className="bg-[#1e1e1e] border-[#1e1e1e] text-white hover:bg-[#363636] disabled:opacity-50"
+                        >
+                            下一页
+                        </Button>
+                    </div>
+                </div>
+            )}
 
             {/* 关闭按钮 */}
             <div className="flex justify-end pt-4">
