@@ -225,15 +225,28 @@ export class ConfigService {
 
   /**
    * 根据键获取配置
+   *
+   * ⚠️ 默认对凭据类键（`SENSITIVE_CONFIG_KEYS`）返回脱敏掩码 `CONFIG_MASK`，
+   * 该行为**只适用于对外响应**。服务内部需要真实凭据时必须显式传
+   * `{ includeSensitive: true }`；否则会把掩码（`'••••••••'`，含非 Latin-1
+   * 字符）当成真实值使用，例如传给 S3Client 会让签名头 `authorization`
+   * 抛 `ERR_INVALID_CHAR`。
+   *
    * @param key 配置键
+   * @param options.includeSensitive 是否返回未脱敏的真实值（默认 false）
    * @returns 配置信息
    */
-  async getConfigByKey(key: string): Promise<ConfigInfo | null> {
+  async getConfigByKey(
+    key: string,
+    options?: { includeSensitive?: boolean },
+  ): Promise<ConfigInfo | null> {
     const config = await this.prisma.config.findFirst({
       where: { key, deletedAt: null, isActive: true },
     });
 
-    return config ? this.toConfigInfo(config) : null;
+    return config
+      ? this.toConfigInfo(config, !options?.includeSensitive)
+      : null;
   }
 
   /**
@@ -332,7 +345,7 @@ export class ConfigService {
   }
 
   /**
-   * 获取所有配置（用于缓存初始化）
+   * 获取所有配置（用于对外响应，敏感键已脱敏）
    * @returns 配置列表
    */
   async findAllConfigs(): Promise<ConfigInfo[]> {
@@ -342,6 +355,23 @@ export class ConfigService {
     });
 
     return configs.map((config) => this.toConfigInfo(config));
+  }
+
+  /**
+   * 获取所有原始配置（**不脱敏**）
+   *
+   * ⚠️ 仅供内部缓存初始化使用。缓存一旦被写入脱敏掩码，后续所有走
+   * `getValue()` 的读取（含邮件 SMTP 密码、存储凭据）都会拿到掩码，
+   * 属于静默故障，故此处必须取真实值。
+   * @returns 配置列表（含真实凭据）
+   */
+  private async findAllConfigsRaw(): Promise<ConfigInfo[]> {
+    const configs = await this.prisma.config.findMany({
+      where: { deletedAt: null, isActive: true },
+      orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }],
+    });
+
+    return configs.map((config) => this.toConfigInfo(config, false));
   }
 
   // ==================== 批量操作 ====================
@@ -504,7 +534,8 @@ export class ConfigService {
    * 初始化配置缓存
    */
   async initCache(): Promise<void> {
-    const configs = await this.findAllConfigs();
+    // 必须使用原始值：缓存里若混入脱敏掩码，getValue() 会把掩码当真实配置返回
+    const configs = await this.findAllConfigsRaw();
 
     for (const config of configs) {
       this.updateCache(config.key, this.parseValue(config.value, config.type));
@@ -531,12 +562,12 @@ export class ConfigService {
 
   // ==================== 私有方法 ====================
 
-  private toConfigInfo(config: PrismaConfig): ConfigInfo {
+  private toConfigInfo(config: PrismaConfig, maskSensitive = true): ConfigInfo {
     return {
       id: config.id,
       key: config.key,
       value:
-        SENSITIVE_CONFIG_KEYS.has(config.key) && config.value
+        maskSensitive && SENSITIVE_CONFIG_KEYS.has(config.key) && config.value
           ? CONFIG_MASK
           : config.value,
       type: config.type as ConfigType,

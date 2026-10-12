@@ -84,13 +84,36 @@ export class StorageService implements IStorageService, IMultipartUploadService,
   }
 
   /**
+   * 判断配置值能否安全用于 HTTP 签名头
+   *
+   * HTTP header 只允许 Latin-1 字符；一旦值混入多字节字符（典型如配置服务
+   * 返回的脱敏掩码 `CONFIG_MASK = '••••••••'`），AWS SDK 生成签名时会抛
+   * `TypeError [ERR_INVALID_CHAR]: Invalid character in header content ["authorization"]`。
+   */
+  private isHeaderSafeValue(value: string): boolean {
+    return !/[\u0080-\uFFFF]/.test(value);
+  }
+
+  /**
    * 从数据库配置获取值，如果为空则回退到环境变量
    */
   private async getConfigValue(dbKey: string, envKey: string, defaultValue: string): Promise<string> {
     try {
-      const dbConfig = await this.systemConfigService.getConfigByKey(dbKey);
+      // ⚠️ 必须传 includeSensitive：`storage.s3AccessKey` / `storage.s3SecretKey`
+      // 属于配置服务的敏感键，默认读取会被替换为脱敏掩码 CONFIG_MASK。
+      // 掩码非空 ⇒ 旧代码会把它当真实凭据传给 S3Client ⇒ 所有走对象存储的
+      // 请求（图片预览、文件下载、RUSTFS 连接测试）全部 500。
+      const dbConfig = await this.systemConfigService.getConfigByKey(dbKey, {
+        includeSensitive: true,
+      });
       if (dbConfig && dbConfig.value && dbConfig.value.trim() !== '') {
-        return dbConfig.value;
+        if (this.isHeaderSafeValue(dbConfig.value)) {
+          return dbConfig.value;
+        }
+        // 双保险：拿到疑似掩码/非法字符的值时宁可回退，也不要构造非法签名头
+        this.logger.warn(
+          `配置 ${dbKey} 的值不是可用明文（疑似脱敏掩码或含非 Latin-1 字符），已忽略并回退环境变量`,
+        );
       }
     } catch (error) {
       // 数据库配置不可用，使用环境变量
