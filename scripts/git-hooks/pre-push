@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+#
+# pre-push：阻止误推到「非公开发布仓库」（尤其是已停用的旧私有仓库 bnoa-private）
+#
+# 背景：OA 的「系统升级」只读公开发布仓库 miaochi998/bnoa。
+#       2026-10-12 曾发生提交被误推到旧私有仓库 bnoa-private 的事故
+#       （提交 8873e5c8，事后才发现并改回公开仓）—— 推到旧仓库等于白推：
+#       OA 永远看不到新版本。本 hook 是**不依赖人（或 AI）记得住规则**的第二道防线：
+#       push 目标只要不是公开仓，就在本地直接拒绝，不必等 GitHub 报错。
+#
+#   （旧仓库 2026-10-12 起已 Archive 为只读，作为历史/文档归档，不再接收推送。）
+#
+# 生效方式（每个 clone 只需执行一次）：
+#     git config core.hooksPath scripts/git-hooks
+#
+# 如确认目标确实无误、需要临时绕过：
+#     git push --no-verify ...
+#
+set -uo pipefail
+
+# 唯一允许的推送目标（GitHub 上的 owner/repo）
+ALLOWED='github.com/miaochi998/bnoa'
+
+remote_name="${1:-}"
+remote_url="${2:-}"
+
+# 打印时脱敏：避免把 https://user:token@host/... 里的凭据写进日志/终端记录
+sanitize() { printf '%s' "$1" | sed -E 's#(https?://)[^@/]*@#\1***@#' | sed -E 's#^[A-Za-z0-9._-]+@#***@#'; }
+
+# 归一化远端地址为 host/owner/repo，兼容：
+#   git@github.com:owner/repo.git      （SSH/scp 风格）
+#   https://github.com/owner/repo.git  （https）
+#   https://user:token@github.com/...  （URL 内嵌凭据）
+normalize() {
+  local u="$1"
+  u=$(printf '%s' "$u" | tr '[:upper:]' '[:lower:]')
+  u=$(printf '%s' "$u" | sed -E 's#^[a-z0-9._-]+@#https://#')       # git@host:path -> https://host:path
+  u=$(printf '%s' "$u" | sed -E 's#^https?://##')                    # 去协议
+  u=$(printf '%s' "$u" | sed -E 's#^[^@/]*@##')                      # 去 user[:token]@
+  u=$(printf '%s' "$u" | sed -E 's#^([a-z0-9._-]+\.[a-z]{2,}):#\1/#') # host:owner -> host/owner
+  u=$(printf '%s' "$u" | sed -E 's#/+$##; s#\.git$##; s#/+$##')  # 先剥尾部斜杠，再剥 .git
+  printf '%s' "$u"
+}
+
+norm=$(normalize "$remote_url")
+[ -z "$norm" ] && exit 0
+
+case "$norm" in
+  "$ALLOWED"|"$ALLOWED"/*) exit 0 ;;
+esac
+
+cat >&2 <<EOF
+
+❌ 已阻止本次 push —— 目标不是公开发布仓库。
+
+   remote 名称 : ${remote_name}
+   remote 地址 : $(sanitize "$remote_url")
+
+   ⚠️  miaochi998/bnoa-private 是【已停用】的旧私有仓库（只作历史/文档归档，
+       其 CI 因账号额度无法运行，最新 Release 停在 v0.4.0）。
+       OA 的「系统升级」只读 miaochi998/bnoa —— 推到旧仓库等于白推，
+       线上永远看不到新版本（历史上已踩过这个坑）。
+
+   正确做法（应只有 origin 指向公开仓）：
+       git remote -v
+       git remote set-url origin git@github.com:miaochi998/bnoa.git
+
+   若确认目标确实无误、需要临时绕过：
+       git push --no-verify ...
+
+EOF
+exit 1
