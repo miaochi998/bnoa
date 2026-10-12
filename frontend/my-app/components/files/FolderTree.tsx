@@ -119,7 +119,12 @@ function TreeNode({
   const hasChildren = folder.children && folder.children.length > 0;
   const isOwner = folder.isOwner ?? true;
   // 系统共享文件夹只有管理员能管理，普通用户不能管理
-  const canManageFolder = shareType === 'system' ? isAdmin : isOwner;
+  // 后端文件夹管理接口（新建子目录/重命名/删除/共享）统一校验 folder:manage，
+  // 这里同步门禁，避免无该权限的用户看到菜单项后点了才吃 403
+  const hasFolderManage = usePermissionStore(
+    (s) => s.isSuperAdmin || s.permissions.includes('folder:manage')
+  );
+  const canManageFolder = (shareType === 'system' ? isAdmin : isOwner) && hasFolderManage;
   const canEdit = isOwner || folder.permissions?.includes('EDIT');
   const canDelete = isOwner || folder.permissions?.includes('DELETE');
 
@@ -272,6 +277,10 @@ const FOLDER_ICONS = [
 ];
 
 export function FolderTree({ selectedFolderId, onSelectFolder, onRefresh, onShareFolder, isAdmin = false, refreshKey }: FolderTreeProps) {  const [personalFolders, setPersonalFolders] = useState<FolderTreeNodeWithShare[]>([]);
+  // 文件夹管理统一门禁：后端 POST/PATCH/DELETE /folders 与共享接口均校验 folder:manage
+  const hasFolderManage = usePermissionStore(
+    (s) => s.isSuperAdmin || s.permissions.includes('folder:manage')
+  );
   const [sharedWithMeFolders, setSharedWithMeFolders] = useState<FolderTreeNodeWithShare[]>([]);
   const [systemSharedFolders, setSystemSharedFolders] = useState<FolderTreeNodeWithShare[]>([]);
   const [realFolders, setRealFolders] = useState<RealFolder[]>([]);
@@ -649,14 +658,16 @@ export function FolderTree({ selectedFolderId, onSelectFolder, onRefresh, onShar
     <div className="flex flex-col p-4 bg-card border border-border rounded-lg mt-4">
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm font-medium text-foreground">文件夹</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
-          onClick={() => openCreateDialog()}
-        >
-          <Plus className="w-4 h-4" />
-        </Button>
+        {hasFolderManage && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => openCreateDialog()}
+          >
+            <Plus className="w-4 h-4" />
+          </Button>
+        )}
       </div>
 
       <div className="overflow-y-auto space-y-2">
@@ -706,10 +717,12 @@ export function FolderTree({ selectedFolderId, onSelectFolder, onRefresh, onShar
                   </div>
                 </ContextMenuTrigger>
                 <ContextMenuContent className="bg-card border-border">
-                  <ContextMenuItem onClick={() => openCreateDialog()}>
-                    <FolderPlus className="w-4 h-4 mr-2" />
-                    新建文件夹
-                  </ContextMenuItem>
+                  {hasFolderManage && (
+                    <ContextMenuItem onClick={() => openCreateDialog()}>
+                      <FolderPlus className="w-4 h-4 mr-2" />
+                      新建文件夹
+                    </ContextMenuItem>
+                  )}
                 </ContextMenuContent>
               </ContextMenu>
               {expandedSections.personal && (

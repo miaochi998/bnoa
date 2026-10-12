@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { apiClient, getAvatarUrl, getDefaultAvatarUrl } from '@/lib/api';
+import { PermissionGate } from '@/components/PermissionGate';
 import { User, UserStatus } from '@/types/user';
 import { DictTag } from '@/components/shared/DictTag';
 import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
@@ -98,17 +99,21 @@ export default function UserDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => router.push(`/users/${userId}/edit`)}
-          >
-            <Edit className="w-4 h-4 mr-2" />
-            编辑
-          </Button>
-          <Button variant="destructive" onClick={handleDelete}>
-            <Trash2 className="w-4 h-4 mr-2" />
-            删除
-          </Button>
+          <PermissionGate permission="user:update">
+            <Button
+              variant="outline"
+              onClick={() => router.push(`/users/${userId}/edit`)}
+            >
+              <Edit className="w-4 h-4 mr-2" />
+              编辑
+            </Button>
+          </PermissionGate>
+          <PermissionGate permission="user:delete">
+            <Button variant="destructive" onClick={handleDelete}>
+              <Trash2 className="w-4 h-4 mr-2" />
+              删除
+            </Button>
+          </PermissionGate>
         </div>
       </div>
 

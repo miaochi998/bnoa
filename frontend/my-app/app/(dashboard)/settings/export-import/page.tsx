@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { apiClient } from '@/lib/api';
+import { PermissionGate } from '@/components/PermissionGate';
 import { DictTag } from '@/components/shared/DictTag';
 import {
     Download,
@@ -467,13 +468,15 @@ export default function ExportImportPage() {
                                                                 <Download className="w-4 h-4" />
                                                             </Button>
                                                         )}
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={() => handleDeleteTask(task.id)}
-                                                        >
-                                                            <Trash2 className="w-4 h-4 text-destructive" />
-                                                        </Button>
+                                                        <PermissionGate permission="export-import:task-delete">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => handleDeleteTask(task.id)}
+                                                            >
+                                                                <Trash2 className="w-4 h-4 text-destructive" />
+                                                            </Button>
+                                                        </PermissionGate>
                                                     </div>
                                                 </TableCell>
                                             </TableRow>

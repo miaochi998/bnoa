@@ -37,6 +37,16 @@ jobs:
             echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           fi
 
+      # ============================================
+      # 权限体检（发版卡口）
+      # 代码层三方比对（无需数据库）：检出「后端要校验、但定义文件未登记」的权限码
+      # —— 这类码会让对应接口对所有人 403。在构建镜像前先失败，避免发出坏版本。
+      # 本地想连同数据库一起体检（僵尸码检测）：
+      #   cd backend && DATABASE_URL=... node scripts/audit-permission-coverage.js
+      # ============================================
+      - name: Audit permission coverage
+        run: node backend/scripts/audit-permission-coverage.js
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

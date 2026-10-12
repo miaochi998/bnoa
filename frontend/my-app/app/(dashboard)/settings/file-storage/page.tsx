@@ -50,6 +50,7 @@ import {
   PenTool,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api';
+import { PermissionGate } from '@/components/PermissionGate';
 import type { RealFolder } from '@/types/file';
 
 interface RustFSConfig {
@@ -1138,10 +1139,12 @@ export default function FileStorageSettingsPage() {
               <CardDescription>管理存储系统中的物理目录</CardDescription>
             </div>
           </div>
-          <Button size="sm" onClick={handleAddFolder}>
-            <Plus className="w-4 h-4 mr-2" />
-            新增目录
-          </Button>
+          <PermissionGate permission="folder:manage">
+            <Button size="sm" onClick={handleAddFolder}>
+              <Plus className="w-4 h-4 mr-2" />
+              新增目录
+            </Button>
+          </PermissionGate>
         </CardHeader>
         <CardContent>
           <Table>
@@ -1165,22 +1168,26 @@ export default function FileStorageSettingsPage() {
                   <TableCell>{formatFileSize(folder.totalSize)}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => handleEditFolder(folder)}
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive"
-                        onClick={() => handleDeleteFolder(folder)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <PermissionGate permission="folder:manage">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handleEditFolder(folder)}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                      </PermissionGate>
+                      <PermissionGate permission="folder:manage">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive"
+                          onClick={() => handleDeleteFolder(folder)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </PermissionGate>
                     </div>
                   </TableCell>
                 </TableRow>

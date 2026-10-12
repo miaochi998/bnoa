@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { apiClient } from '@/lib/api';
+import { PermissionGate } from '@/components/PermissionGate';
 import { Role } from '@/types/role';
 import {
   ArrowLeft,
@@ -112,10 +113,12 @@ export default function RoleDetailPage() {
                 <Settings className="w-4 h-4 mr-2" />
                 权限配置
               </Button>
-              <Button variant="destructive" onClick={handleDelete}>
-                <Trash2 className="w-4 h-4 mr-2" />
-                删除
-              </Button>
+              <PermissionGate permission="role:delete">
+                <Button variant="destructive" onClick={handleDelete}>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  删除
+                </Button>
+              </PermissionGate>
             </>
           )}
         </div>
