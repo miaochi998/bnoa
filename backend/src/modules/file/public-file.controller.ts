@@ -17,7 +17,34 @@ import { PrismaService } from '../../config/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { LocalStorageService } from '../storage/local-storage.service';
 import { FolderPermissionService } from './folder-permission.service';
+import { PermissionGuard } from '../../common/guards/permission.guard';
 import type { UserPayload } from '../../common/decorators/current-user.decorator';
+
+/**
+ * 业务引用放行表
+ *
+ * 文件一旦被业务记录引用，它就是该业务的**共享资源**（产品主图、耗材图等），
+ * 不应再受「仅上传者本人可见」限制 —— 否则会出现「管理员上传的产品图，
+ * 运营一张都看不到」这类误杀。
+ *
+ * 判定方式：拥有对应模块**查看权限**的用户即可读。
+ * 新增业务图片字段时在下面登记一条即可（permission 取该模块的查看码）。
+ */
+const BIZ_FILE_REFS: Array<{
+  permission: string;
+  referenced: (prisma: PrismaService, fileId: string) => Promise<boolean>;
+}> = [
+  {
+    permission: 'product:view',
+    referenced: async (prisma, fileId) =>
+      (await prisma.product.count({ where: { mainImage: fileId } })) > 0,
+  },
+  {
+    permission: 'consumable:view',
+    referenced: async (prisma, fileId) =>
+      (await prisma.consumable.count({ where: { image: fileId } })) > 0,
+  },
+];
 
 /**
  * 公共文件控制器
@@ -29,8 +56,10 @@ import type { UserPayload } from '../../common/decorators/current-user.decorator
  *   1. 必须携带有效令牌，且账号未被停用 / 未被删除；
  *   2. 上传者本人可读；
  *   3. 文件归属某文件夹时，需对该文件夹具备 VIEW 权限（共享文件夹场景）；
- *   4. 其它情况一律 403 —— 不再允许匿名读取任意文件；
- *   5. 已隔离（status = QUARANTINED）的文件任何情况都不返回。
+ *   4. 文件被**业务记录**引用时，拥有该业务模块查看权限者（如 `product:view`）可读
+ *      —— 业务图片属共享资源，不按上传者归属限制；
+ *   5. 其它情况一律 403 —— 不再允许匿名读取任意文件；
+ *   6. 已隔离（status = QUARANTINED）的文件任何情况都不返回。
  *
  * 注意：对外分享不依赖本端点（分享走 `GET /shares/:code/file`，含密码与
  * shareAccess 校验）；头像走 `/auth/avatar/:userId`；验证码背景图走
@@ -73,6 +102,7 @@ export class PublicFileController {
   /** 统一的文件可读性校验（fail-closed；super_admin 豁免） */
   private async assertCanRead(
     file: {
+      id: string;
       uploadedBy: string | null;
       folderId: string | null;
       status: string | null;
@@ -96,7 +126,32 @@ export class PublicFileController {
       );
       if (allowed) return;
     }
+    // 业务引用放行：文件被业务记录引用时，随该业务模块的查看权限共享
+    if (await this.isBizSharedFile(file.id, userId)) return;
     throw new ForbiddenException('无权访问该文件');
+  }
+
+  /**
+   * 文件是否作为「业务共享资源」对该用户可读
+   *
+   * 按 `BIZ_FILE_REFS` 顺序短路：命中任一业务引用、且用户具备该模块查看权限即放行。
+   * 权限查询复用 `PermissionGuard` 的同一份缓存，避免与本守卫口径不一致。
+   */
+  private async isBizSharedFile(
+    fileId: string,
+    userId: string,
+  ): Promise<boolean> {
+    for (const ref of BIZ_FILE_REFS) {
+      const referenced = await ref.referenced(this.prisma, fileId);
+      if (!referenced) continue;
+      const allowed = await PermissionGuard.hasAnyPermission(
+        this.prisma,
+        userId,
+        [ref.permission],
+      );
+      if (allowed) return true;
+    }
+    return false;
   }
 
   /** 是否超级管理员（查库口径，与 PermissionGuard 一致） */

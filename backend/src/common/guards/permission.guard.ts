@@ -117,10 +117,26 @@ export class PermissionGuard implements CanActivate {
             return { roles: cached.roles, permissions: cached.permissions };
         }
 
-        // 查询数据库
-        // ⚠️ 只取「启用且未软删」的角色：否则把角色设为停用/软删后，
-        // 已分配该角色的用户会无限期保留其全部权限（权限无法回收）。
-        const userRoles = await this.prisma.userRole.findMany({
+        await PermissionGuard.loadIntoCache(this.prisma, userId);
+
+        const entry = this.cache.get(userId);
+        return {
+            roles: entry?.roles ?? [],
+            permissions: entry?.permissions ?? [],
+        };
+    }
+
+    /**
+     * 从数据库加载用户的角色/权限码并写入共享缓存
+     *
+     * ⚠️ 只取「启用且未软删」的角色：否则把角色设为停用/软删后，
+     * 已分配该角色的用户会无限期保留其全部权限（权限无法回收）。
+     */
+    private static async loadIntoCache(
+        prisma: PrismaService,
+        userId: string,
+    ): Promise<void> {
+        const userRoles = await prisma.userRole.findMany({
             where: { userId, role: { isActive: true, deletedAt: null } },
             include: {
                 role: {
@@ -143,16 +159,36 @@ export class PermissionGuard implements CanActivate {
             }
         }
 
-        const permissions = Array.from(permissionSet);
-
-        // 写入缓存
-        this.cache.set(userId, {
+        PermissionGuard.cache.set(userId, {
             roles,
-            permissions,
-            expiresAt: Date.now() + this.CACHE_TTL,
+            permissions: Array.from(permissionSet),
+            expiresAt: Date.now() + PermissionGuard.CACHE_TTL,
         });
+    }
 
-        return { roles, permissions };
+    /**
+     * 供 Guard 之外的场景复用**同一份**权限缓存（例如文件可读性判定）。
+     *
+     * 返回该用户是否拥有 `codes` 中任意一个权限；`super_admin` 豁免由调用方自行判定。
+     * 与守卫共用缓存，避免同一用户在两处得到不一致的权限集合。
+     */
+    static async hasAnyPermission(
+        prisma: PrismaService,
+        userId: string,
+        codes: string[],
+    ): Promise<boolean> {
+        if (codes.length === 0) return false;
+
+        const cached = PermissionGuard.cache.get(userId);
+        let permissions: string[];
+        if (cached && cached.expiresAt > Date.now()) {
+            permissions = cached.permissions;
+        } else {
+            await PermissionGuard.loadIntoCache(prisma, userId);
+            permissions = PermissionGuard.cache.get(userId)?.permissions ?? [];
+        }
+
+        return codes.some((c) => permissions.includes(c));
     }
 
     /**

@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
+import { usePermissionStore } from '@/lib/stores/permission-store';
 
 interface Zone {
   id: string;
@@ -45,6 +46,11 @@ interface PriceMatrixPanelProps {
 
 export function PriceMatrixPanel({ companyId, companyName }: PriceMatrixPanelProps) {
   const fp = useFieldPermissions('express');
+  // 功能权限：能否管理快递价格（与后端 `express:price` 校验口径一致）
+  // ⚠️ 字段权限只决定「哪些字段可改」，功能权限才决定「能否执行保存」；两者须同时满足。
+  const permissionStore = usePermissionStore();
+  const canManagePrice =
+    permissionStore.loaded && permissionStore.hasPermission('express:price');
   const [zones, setZones] = useState<Zone[]>([]);
   const [weightRanges, setWeightRanges] = useState<WeightRange[]>([]);
   const [matrix, setMatrix] = useState<Record<string, Record<string, number>>>({});
@@ -106,7 +112,7 @@ export function PriceMatrixPanel({ companyId, companyName }: PriceMatrixPanelPro
 
   // 保存价格
   const handleSave = async () => {
-    if (!fp.canEdit('price.price')) {
+    if ((!fp.canEdit('price.price') || !canManagePrice)) {
       alert('你没有「单价」的编辑权限');
       return;
     }
@@ -183,7 +189,7 @@ export function PriceMatrixPanel({ companyId, companyName }: PriceMatrixPanelPro
                 variant="outline"
                 size="sm"
                 onClick={() => setCopyDialogOpen(true)}
-                disabled={!fp.canEdit('price.price')}
+                disabled={(!fp.canEdit('price.price') || !canManagePrice)}
               >
                 <Copy className="w-4 h-4 mr-1" />
                 复制配置
@@ -200,7 +206,7 @@ export function PriceMatrixPanel({ companyId, companyName }: PriceMatrixPanelPro
               <Button
                 size="sm"
                 onClick={handleSave}
-                disabled={!hasChanges || saving || !fp.canEdit('price.price')}
+                disabled={!hasChanges || saving || (!fp.canEdit('price.price') || !canManagePrice)}
               >
                 <Save className="w-4 h-4 mr-1" />
                 {saving ? '保存中...' : '保存'}
@@ -238,7 +244,7 @@ export function PriceMatrixPanel({ companyId, companyName }: PriceMatrixPanelPro
                             min="0"
                             value={editedMatrix[zone.id]?.[weightRange.id] || 0}
                             onChange={(e) => handlePriceChange(zone.id, weightRange.id, e.target.value)}
-                            disabled={!fp.canEdit('price.price')}
+                            disabled={(!fp.canEdit('price.price') || !canManagePrice)}
                             className="w-24 text-center"
                           />
                         ) : (

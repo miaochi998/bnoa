@@ -228,7 +228,7 @@ export class ExpressController {
     }
 
     @Patch('zones/:id')
-    @Permissions('express:update')
+    @Permissions('express:zone')
     @HttpCode(HttpStatus.OK)
     async updateZone(
         @Param('id') id: string,
@@ -248,7 +248,7 @@ export class ExpressController {
     }
 
     @Patch('companies/:id/zones/batch')
-    @Permissions('express:update')
+    @Permissions('express:zone')
     @HttpCode(HttpStatus.OK)
     async batchUpdateZones(
         @Param('id') id: string,
@@ -280,7 +280,7 @@ export class ExpressController {
     }
 
     @Patch('weight-ranges/:id')
-    @Permissions('express:price')
+    @Permissions('express:weight')
     @HttpCode(HttpStatus.OK)
     async updateWeightRange(
         @Param('id') id: string,
@@ -386,7 +386,7 @@ export class ExpressController {
     }
 
     @Post('companies/:id/surcharges')
-    @Permissions('express:update')
+    @Permissions('express:surcharge')
     @HttpCode(HttpStatus.OK)
     async createSurcharge(
         @Param('id') id: string,
@@ -406,7 +406,7 @@ export class ExpressController {
     }
 
     @Patch('surcharges/:id')
-    @Permissions('express:update')
+    @Permissions('express:surcharge')
     @HttpCode(HttpStatus.OK)
     async updateSurcharge(
         @Param('id') id: string,
@@ -426,7 +426,7 @@ export class ExpressController {
     }
 
     @Delete('surcharges/:id')
-    @Permissions('express:update')
+    @Permissions('express:surcharge')
     @HttpCode(HttpStatus.OK)
     async deleteSurcharge(@Param('id') id: string) {
         await this.expressService.deleteSurcharge(id);

@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { MapPin, Save, RotateCcw } from 'lucide-react';
 import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
+import { usePermissionStore } from '@/lib/stores/permission-store';
 
 interface Zone {
   id: string;
@@ -34,6 +35,11 @@ const ALL_PROVINCES = [
 
 export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
   const fp = useFieldPermissions('express');
+  // 功能权限：能否管理快递分区（与后端 `express:zone` 校验口径一致）
+  // ⚠️ 字段权限只决定「哪些字段可改」，功能权限才决定「能否执行保存」；两者须同时满足。
+  const permissionStore = usePermissionStore();
+  const canManageZone =
+    permissionStore.loaded && permissionStore.hasPermission('express:zone');
   const [zones, setZones] = useState<Zone[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -91,7 +97,7 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
   // 保存区域配置
   const handleSave = async () => {
     if (!selectedZone) return;
-    if (!fp.canEdit('zone.provinces')) {
+    if ((!fp.canEdit('zone.provinces') || !canManageZone)) {
       alert('你没有「包含省份」的编辑权限');
       return;
     }
@@ -179,7 +185,7 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
                     variant="outline"
                     size="sm"
                     onClick={handleReset}
-                    disabled={!selectedZone || !fp.canEdit('zone.provinces')}
+                    disabled={!selectedZone || (!fp.canEdit('zone.provinces') || !canManageZone)}
                   >
                     <RotateCcw className="w-4 h-4 mr-1" />
                     重置
@@ -187,7 +193,7 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
                   <Button
                     size="sm"
                     onClick={handleSave}
-                    disabled={!selectedZone || saving || !fp.canEdit('zone.provinces')}
+                    disabled={!selectedZone || saving || (!fp.canEdit('zone.provinces') || !canManageZone)}
                   >
                     <Save className="w-4 h-4 mr-1" />
                     {saving ? '保存中...' : '保存'}
@@ -199,7 +205,7 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={!selectedZone || !fp.canEdit('zone.provinces')}
+                  disabled={!selectedZone || (!fp.canEdit('zone.provinces') || !canManageZone)}
                   onClick={() => {
                     const available = ALL_PROVINCES.filter(p => !occupiedProvinces.has(p));
                     setSelectedProvinces(available);
@@ -210,7 +216,7 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={!selectedZone || !fp.canEdit('zone.provinces')}
+                  disabled={!selectedZone || (!fp.canEdit('zone.provinces') || !canManageZone)}
                   onClick={() => {
                     const available = ALL_PROVINCES.filter(p => !occupiedProvinces.has(p));
                     setSelectedProvinces(prev => {
@@ -239,12 +245,12 @@ export function ZoneConfigPanel({ companyId }: ZoneConfigPanelProps) {
                         disabled={
                           !selectedZone ||
                           occupiedProvinces.has(province) ||
-                          !fp.canEdit('zone.provinces')
+                          (!fp.canEdit('zone.provinces') || !canManageZone)
                         }
                       />
                       <label
                         htmlFor={`province-${province}`}
-                        className={`text-sm ${occupiedProvinces.has(province) || !fp.canEdit('zone.provinces') ? 'text-muted-foreground/50 line-through cursor-not-allowed' : 'cursor-pointer'}`}
+                        className={`text-sm ${occupiedProvinces.has(province) || (!fp.canEdit('zone.provinces') || !canManageZone) ? 'text-muted-foreground/50 line-through cursor-not-allowed' : 'cursor-pointer'}`}
                         title={occupiedProvinces.has(province) ? `已被「${occupiedProvinces.get(province)}」占用` : undefined}
                       >
                         {province}

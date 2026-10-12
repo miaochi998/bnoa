@@ -26,6 +26,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
+import { usePermissionStore } from '@/lib/stores/permission-store';
 
 interface Surcharge {
   id: string;
@@ -53,6 +54,12 @@ const ALL_PROVINCES = [
 
 export function SurchargePanel({ companyId }: SurchargePanelProps) {
   const fp = useFieldPermissions('express');
+  // 功能权限：能否管理附加费（与后端 `express:surcharge` 校验口径一致）
+  // ⚠️ 字段权限只决定「哪些字段可改」，功能权限才决定「能否执行新增/编辑/删除」，
+  //    两者必须同时满足；否则会出现「按钮看得见、点了才报权限不足」的误导。
+  const permissionStore = usePermissionStore();
+  const canManage =
+    permissionStore.loaded && permissionStore.hasPermission('express:surcharge');
   const [surcharges, setSurcharges] = useState<Surcharge[]>([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -212,7 +219,7 @@ export function SurchargePanel({ companyId }: SurchargePanelProps) {
               <AlertCircle className="w-5 h-5" />
               附加费管理
             </CardTitle>
-            {canCreate && (
+            {canCreate && canManage && (
               <Button size="sm" onClick={handleCreate}>
                 <Plus className="w-4 h-4 mr-1" />
                 添加附加费
@@ -288,7 +295,7 @@ export function SurchargePanel({ companyId }: SurchargePanelProps) {
                       </TableCell>
                     )}
                     <TableCell className="text-right">
-                      {canEditAny && (
+                      {canEditAny && canManage && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -297,13 +304,15 @@ export function SurchargePanel({ companyId }: SurchargePanelProps) {
                           <Edit className="w-4 h-4" />
                         </Button>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(surcharge.id)}
-                      >
-                        <Trash2 className="w-4 h-4 text-red-500" />
-                      </Button>
+                      {canManage && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDelete(surcharge.id)}
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
