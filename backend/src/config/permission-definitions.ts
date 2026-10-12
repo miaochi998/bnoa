@@ -157,7 +157,6 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
   { name: '编辑耗材', code: 'consumable:update', type: 'BUTTON', description: '编辑耗材信息', parentCode: 'consumable:view' },
   { name: '删除耗材', code: 'consumable:delete', type: 'BUTTON', description: '删除耗材', parentCode: 'consumable:view' },
   { name: '管理耗材价格', code: 'consumable:price', type: 'BUTTON', description: '管理耗材供应商价格', parentCode: 'consumable:view' },
-  { name: '耗材供应商', code: 'consumable-supplier:view', type: 'MENU', description: '耗材供应商菜单权限', parentCode: null },
   { name: '新增耗材供应商', code: 'consumable-supplier:create', type: 'BUTTON', description: '新增耗材供应商', parentCode: 'consumable:view' },
   { name: '编辑耗材供应商', code: 'consumable-supplier:update', type: 'BUTTON', description: '编辑耗材供应商信息', parentCode: 'consumable:view' },
   { name: '删除耗材供应商', code: 'consumable-supplier:delete', type: 'BUTTON', description: '删除耗材供应商', parentCode: 'consumable:view' },

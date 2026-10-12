@@ -40,7 +40,6 @@ export const PERMISSION_CATEGORY_MAP: Record<
   'supplier:view': { category: 'business', order: 7 },
   'product:view': { category: 'business', order: 8 },
   'finished-product:view': { category: 'business', order: 9 },
-  'consumable-supplier:view': { category: 'business', order: 10 },
   'consumable:view': { category: 'business', order: 11 },
   'platform:view': { category: 'business', order: 12 },
   'shop:view': { category: 'business', order: 13 },

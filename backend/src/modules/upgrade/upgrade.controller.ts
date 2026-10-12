@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Put,
@@ -8,6 +9,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { isUUID } from 'class-validator';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionGuard } from '../../common/guards/permission.guard';
@@ -69,6 +71,13 @@ export class UpgradeController {
   @Get('progress')
   @ApiOperation({ summary: '获取升级进度' })
   async getUpgradeProgress(@Query('upgradeId') upgradeId?: string) {
+    // ⚠️ 入参必须先校验：upgradeLog.id 是 uuid 列，脏参数（如 `upgradeId=501`）
+    // 会一路落到 Prisma 抛「Inconsistent column data: Error creating UUID…」，
+    // 表现为 500 + 每轮一对错误日志，极易被误判成服务端故障。
+    // 空串按「未提供」处理（服务端语义：不给 id 就返回最近一条记录）。
+    if (upgradeId && !isUUID(upgradeId)) {
+      throw new BadRequestException('upgradeId 必须是合法的 UUID');
+    }
     return this.upgradeService.getUpgradeProgress(upgradeId);
   }
 
