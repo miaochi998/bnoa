@@ -44,6 +44,7 @@ import {
 const LABOR_FIELD_MAP: FieldKeyMapping[] = [
     { field: 'name', key: 'name' },
     { field: 'code', key: 'code' },
+    { field: 'image', key: 'image' },
     { field: 'billingType', key: 'billingType' },
     { field: 'status', key: 'status' },
     // 只隐藏数组元素里的费率（key 用元素字段名 unitPrice）；

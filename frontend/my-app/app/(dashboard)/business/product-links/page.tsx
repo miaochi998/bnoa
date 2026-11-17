@@ -50,9 +50,11 @@ import {
     ChevronRight,
     ChevronDown,
     ChevronRight as ChevronRightIcon,
+    Layers,
 } from 'lucide-react';
 import { ProductLinkForm } from './components/ProductLinkForm';
 import { PermissionGate } from '@/components/PermissionGate';
+import { SkuCompositionDialog } from '@/components/business/SkuCompositionDialog';
 import { SortableTable } from '@/components/shared/SortableTable';
 import { usePermissionStore } from '@/lib/stores/permission-store';
 
@@ -149,6 +151,10 @@ export default function ProductLinkPage() {
     const [expandedLinks, setExpandedLinks] = useState<Set<string>>(new Set());
     const [expandedSkus, setExpandedSkus] = useState<Record<string, Sku[]>>({});
     const [loadingSkus, setLoadingSkus] = useState<Set<string>>(new Set());
+
+    // SKU 成本组成弹窗
+    const [compositionOpen, setCompositionOpen] = useState(false);
+    const [selectedSkuId, setSelectedSkuId] = useState<string | null>(null);
 
     // 拖拽排序状态（有更新权限才可拖）
     const canUpdate = usePermissionStore(
@@ -503,6 +509,9 @@ export default function ProductLinkPage() {
                                                             <TableHead className="text-muted-foreground text-right">快递费</TableHead>
                                                             <TableHead className="text-muted-foreground text-right">总成本</TableHead>
                                                             <TableHead className="text-muted-foreground">状态</TableHead>
+                                                            <PermissionGate permission="sku:composition">
+                                                                <TableHead className="text-muted-foreground text-right">操作</TableHead>
+                                                            </PermissionGate>
                                                         </TableRow>
                                                     </TableHeader>
                                                     <TableBody>
@@ -528,6 +537,24 @@ export default function ProductLinkPage() {
                                                                 </TableCell>
                                                                 <TableCell>
                                                                     <DictTag typeCode="sku_status" value={sku.status} />
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                    <PermissionGate permission="sku:composition">
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="icon"
+                                                                            className="h-8 w-8 text-muted-foreground hover:text-[#409fff] cursor-pointer"
+                                                                            title="SKU成本组成"
+                                                                            aria-label="SKU成本组成"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setSelectedSkuId(sku.id);
+                                                                                setCompositionOpen(true);
+                                                                            }}
+                                                                        >
+                                                                            <Layers className="w-4 h-4" />
+                                                                        </Button>
+                                                                    </PermissionGate>
                                                                 </TableCell>
                                                             </TableRow>
                                                         ))}
@@ -632,6 +659,15 @@ export default function ProductLinkPage() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            <SkuCompositionDialog
+                open={compositionOpen}
+                onOpenChange={(open) => {
+                    setCompositionOpen(open);
+                    if (!open) setSelectedSkuId(null);
+                }}
+                skuId={selectedSkuId}
+            />
         </div>
     );
 }

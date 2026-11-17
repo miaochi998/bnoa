@@ -22,6 +22,8 @@ import {
     Plus, Search, Edit, Trash2, Hammer, DollarSign, GripVertical,
 } from 'lucide-react';
 import { PermissionGate } from '@/components/PermissionGate';
+import { ImageThumb } from '@/components/business/ImageThumb';
+import { ImagePreviewDialog } from '@/components/business/ImagePreviewDialog';
 import { LaborTypeForm } from './components/LaborTypeForm';
 import { LaborRateDialog } from './components/LaborRateDialog';
 import { EditableCell } from '@/components/shared/EditableCell';
@@ -48,6 +50,7 @@ interface LaborType {
     id: string;
     code: string;
     name: string;
+    image?: string | null;
     billingType: string;
     status: string;
     remark?: string;
@@ -110,6 +113,9 @@ export default function LaborTypesPage() {
     const [rateDialogOpen, setRateDialogOpen] = useState(false);
     const [selectedItem, setSelectedItem] = useState<LaborType | null>(null);
     const [sorting, setSorting] = useState(false);
+    // 图片预览
+    const [preview, setPreview] = useState<{ fileId: string; alt?: string } | null>(null);
+    const canViewImage = fp.canView('image');
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -304,6 +310,9 @@ export default function LaborTypesPage() {
                             <TableHeader>
                                 <TableRow className="border-[#1e1e1e] hover:bg-transparent">
                                     <TableHead className="text-[#8e8e8e] w-10">拖拽</TableHead>
+                                    {canViewImage && (
+                                        <TableHead className="text-[#8e8e8e] w-[68px]">图片</TableHead>
+                                    )}
                                     <TableHead className="text-[#8e8e8e]">编码</TableHead>
                                     <TableHead className="text-[#8e8e8e]">名称</TableHead>
                                     <TableHead className="text-[#8e8e8e]">计费方式</TableHead>
@@ -314,7 +323,7 @@ export default function LaborTypesPage() {
                             </TableHeader>
                             <TableBody>
                                 <TableRow>
-                                    <TableCell colSpan={7} className="text-center text-[#8e8e8e] py-8">
+                                    <TableCell colSpan={canViewImage ? 8 : 7} className="text-center text-[#8e8e8e] py-8">
                                         加载中...
                                     </TableCell>
                                 </TableRow>
@@ -325,6 +334,9 @@ export default function LaborTypesPage() {
                             <TableHeader>
                                 <TableRow className="border-[#1e1e1e] hover:bg-transparent">
                                     <TableHead className="text-[#8e8e8e] w-10">拖拽</TableHead>
+                                    {canViewImage && (
+                                        <TableHead className="text-[#8e8e8e] w-[68px]">图片</TableHead>
+                                    )}
                                     <TableHead className="text-[#8e8e8e]">编码</TableHead>
                                     <TableHead className="text-[#8e8e8e]">名称</TableHead>
                                     <TableHead className="text-[#8e8e8e]">计费方式</TableHead>
@@ -335,7 +347,7 @@ export default function LaborTypesPage() {
                             </TableHeader>
                             <TableBody>
                                 <TableRow>
-                                    <TableCell colSpan={7} className="text-center text-[#8e8e8e] py-8">
+                                    <TableCell colSpan={canViewImage ? 8 : 7} className="text-center text-[#8e8e8e] py-8">
                                         <div className="flex flex-col items-center gap-2">
                                             <Hammer className="w-8 h-8 text-[#8e8e8e]" />
                                             <p>暂无工种数据</p>
@@ -358,6 +370,9 @@ export default function LaborTypesPage() {
                                     <TableHeader>
                                         <TableRow className="border-[#1e1e1e] hover:bg-transparent">
                                             <TableHead className="text-[#8e8e8e] w-10">拖拽</TableHead>
+                                            {canViewImage && (
+                                                <TableHead className="text-[#8e8e8e] w-[68px]">图片</TableHead>
+                                            )}
                                             {fp.canView('code') && (
                                                 <TableHead className="text-[#8e8e8e]">编码</TableHead>
                                             )}
@@ -379,6 +394,16 @@ export default function LaborTypesPage() {
                                     <TableBody>
                                         {list.map((item) => (
                                             <SortableRow key={item.id} id={item.id}>
+                                                {canViewImage && (
+                                                <TableCell className="w-[68px]">
+                                                    <ImageThumb
+                                                        fileId={item.image}
+                                                        alt={item.name}
+                                                        size={40}
+                                                        onPreview={(fileId, alt) => setPreview({ fileId, alt })}
+                                                    />
+                                                </TableCell>
+                                                )}
                                                 {fp.canView('code') && (
                                                 <TableCell className="font-medium text-white">
                                                     {item.code ?? ''}
@@ -549,6 +574,13 @@ export default function LaborTypesPage() {
                     )}
                 </DialogContent>
             </Dialog>
+
+            <ImagePreviewDialog
+                open={!!preview}
+                fileId={preview?.fileId || null}
+                alt={preview?.alt}
+                onClose={() => setPreview(null)}
+            />
         </div>
     );
 }

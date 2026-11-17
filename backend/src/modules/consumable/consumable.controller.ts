@@ -328,6 +328,47 @@ export class ConsumableSupplierController {
         );
     }
 
+    @Get(':id/consumables')
+    @Permissions('consumable-supplier:consumables')
+    async findSupplierConsumables(
+        @Param('id') id: string,
+        @Query('keyword') keyword: string,
+        @Query('page') page: string,
+        @Query('pageSize') pageSize: string,
+        @CurrentUser() user: UserPayload,
+    ) {
+        const result: any =
+            await this.consumableService.findConsumablesBySupplier(
+                id,
+                {
+                    keyword: keyword || undefined,
+                    page: page ? Number(page) : 1,
+                    pageSize: pageSize
+                        ? Number(pageSize)
+                        : 20,
+                },
+            );
+        const state = await this.resolveFields(user);
+        const strip = (obj: any) =>
+            this.fieldPermissionService.stripHiddenFields(
+                obj,
+                CONSUMABLE_FIELD_MAP,
+                state,
+            );
+        return {
+            ...result,
+            list: result.list.map((item: any) => ({
+                ...item,
+                consumable: strip(item.consumable),
+                currentPrice: strip(item.currentPrice),
+                allSuppliers:
+                    item.allSuppliers.map((s: any) =>
+                        strip(s),
+                    ),
+            })),
+        };
+    }
+
     @Post()
     @Permissions('consumable-supplier:create')
     @HttpCode(HttpStatus.OK)

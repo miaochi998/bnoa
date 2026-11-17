@@ -153,6 +153,11 @@ export class CreateFinishedProductDto {
     @IsString()
     remark?: string;
 
+    @ApiPropertyOptional({ description: '成品图片文件ID（传 null 清空）', nullable: true })
+    @IsOptional()
+    @IsUUID()
+    image?: string | null;
+
     @ApiPropertyOptional({ description: '耗材清单' })
     @IsOptional()
     @IsArray()
@@ -242,6 +247,11 @@ export class UpdateFinishedProductDto {
     @IsOptional()
     @IsString()
     remark?: string;
+
+    @ApiPropertyOptional({ description: '成品图片文件ID（传 null 清空）', nullable: true })
+    @IsOptional()
+    @IsUUID()
+    image?: string | null;
 
     @ApiPropertyOptional({ description: '耗材清单' })
     @IsOptional()

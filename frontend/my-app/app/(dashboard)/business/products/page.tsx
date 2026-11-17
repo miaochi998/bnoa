@@ -7,9 +7,10 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Search, Plus, Edit, Trash2, Package, Settings, GripVertical, Eye } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, Settings, GripVertical } from 'lucide-react';
 import { ProductForm } from './components/ProductForm';
 import { ProductImageConfigDialog } from '@/components/products/ProductImageConfigDialog';
+import { ImageThumb } from '@/components/business/ImageThumb';
 import { DictTag } from '@/components/shared/DictTag';
 import { PermissionGate } from '@/components/PermissionGate';
 import { EditableCell } from '@/components/shared/EditableCell';
@@ -363,30 +364,18 @@ export default function ProductsPage() {
                                             {(fp.canView('mainImage') || fp.canView('name') || fp.canView('pricingMode')) && (
                                             <td className="px-4 py-3">
                                                 <div className="flex items-center gap-3">
-                                                    {fp.canView('mainImage') && (product.mainImage ? (
-                                                        <div
-                                                            className="relative w-10 h-10 rounded bg-[#1e1e1e] flex items-center justify-center overflow-hidden cursor-pointer group"
-                                                            title="查看大图"
-                                                            onClick={() => {
-                                                                setPreviewImage(getFilePreviewUrl(product.mainImage!));
-                                                                setPreviewName(product.name ?? '');
+                                                    {fp.canView('mainImage') && (
+                                                        <ImageThumb
+                                                            fileId={product.mainImage}
+                                                            alt={product.name ?? ''}
+                                                            size={40}
+                                                            onPreview={(fileId, alt) => {
+                                                                setPreviewImage(getFilePreviewUrl(fileId));
+                                                                setPreviewName(alt || '');
                                                                 setPreviewOpen(true);
                                                             }}
-                                                        >
-                                                            <img
-                                                                src={getFilePreviewUrl(product.mainImage!)}
-                                                                alt={product.name ?? ''}
-                                                                className="w-full h-full object-cover rounded"
-                                                            />
-                                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                                                                <Eye className="w-4 h-4 text-white" />
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="w-10 h-10 rounded bg-[#1e1e1e] flex items-center justify-center overflow-hidden">
-                                                            <Package className="w-5 h-5 text-[#8e8e8e]" />
-                                                        </div>
-                                                    ))}
+                                                        />
+                                                    )}
                                                     <div className="text-white font-medium">
                                                         {fp.canView('name') ? (
                                                         <PermissionGate

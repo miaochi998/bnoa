@@ -7,6 +7,8 @@ import { Label } from '@/components/ui/label';
 import { DictSelect } from '@/components/shared/DictSelect';
 import { apiClient } from '@/lib/api';
 import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
+import { SimpleImageUploader } from '@/components/upload/SimpleImageUploader';
+import { ImageThumb } from '@/components/business/ImageThumb';
 
 interface Consumable {
     id: string;
@@ -16,6 +18,7 @@ interface Consumable {
     specDesc?: string;
     status: string;
     remark?: string;
+    image?: string | null;
 }
 
 interface ConsumableFormProps {
@@ -36,6 +39,7 @@ export function ConsumableForm({
         specDesc: consumable?.specDesc || '',
         status: consumable?.status || 'ACTIVE',
         remark: consumable?.remark || '',
+        image: consumable?.image || '',
     });
     const [loading, setLoading] = useState(false);
 
@@ -60,6 +64,8 @@ export function ConsumableForm({
         if (fp.canEdit('category')) payload.category = formData.category;
         if (fp.canEdit('specDesc')) payload.specDesc = formData.specDesc;
         if (fp.canEdit('remark')) payload.remark = formData.remark;
+        // 图片：清空时必须显式传 null，后端才会把 image 落库为 null
+        if (fp.canEdit('image')) payload.image = formData.image || null;
         if (consumable && fp.canEdit('status')) payload.status = formData.status;
 
         if (Object.keys(payload).length === 0) {
@@ -103,6 +109,36 @@ export function ConsumableForm({
                         耗材编码创建后不可修改
                     </p>
                 </div>
+            )}
+
+            {fp.canView('image') && (
+            <div className="space-y-2">
+                <Label className="text-white">耗材图片</Label>
+                {fp.canEdit('image') ? (
+                    <SimpleImageUploader
+                        value={formData.image || undefined}
+                        onChange={(fileId) =>
+                            setFormData({
+                                ...formData,
+                                image: fileId || '',
+                            })
+                        }
+                        returnFileId={true}
+                        placeholder="点击或拖拽上传图片"
+                        className="w-32 h-32"
+                    />
+                ) : formData.image ? (
+                    <ImageThumb
+                        fileId={formData.image}
+                        alt={formData.name}
+                        size={128}
+                    />
+                ) : (
+                    <div className="w-32 h-32 rounded-lg bg-[#1e1e1e] border border-[#3e3e3e] flex items-center justify-center text-xs text-[#8e8e8e]">
+                        无图片
+                    </div>
+                )}
+            </div>
             )}
 
             {fp.canView('name') && (

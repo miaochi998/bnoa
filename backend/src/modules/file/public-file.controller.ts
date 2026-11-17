@@ -44,6 +44,65 @@ const BIZ_FILE_REFS: Array<{
     referenced: async (prisma, fileId) =>
       (await prisma.consumable.count({ where: { image: fileId } })) > 0,
   },
+  {
+    permission: 'finished-product:view',
+    referenced: async (prisma, fileId) =>
+      (await prisma.finishedProduct.count({ where: { image: fileId } })) > 0,
+  },
+  {
+    permission: 'labor:view',
+    referenced: async (prisma, fileId) =>
+      (await prisma.laborType.count({ where: { image: fileId } })) > 0,
+  },
+  // 成品弹窗：文件被成品关联的产品图/耗材图/工费图引用
+  {
+    permission: 'finished-product:view',
+    referenced: async (prisma, fileId) =>
+      (await prisma.finishedProduct.count({
+        where: {
+          OR: [
+            { product: { mainImage: fileId } },
+            { finishedProductConsumables: { some: { consumable: { image: fileId } } } },
+            { finishedProductLabor: { some: { laborType: { image: fileId } } } },
+          ],
+        },
+      })) > 0,
+  },
+  // SKU 成本组成弹窗：文件被 SKU 关联成品的图/产品图/耗材图/工费图引用
+  {
+    permission: 'sku:view',
+    referenced: async (prisma, fileId) =>
+      (await prisma.sku.count({
+        where: {
+          skuFinishedProducts: {
+            some: {
+              finishedProduct: {
+                OR: [
+                  { image: fileId },
+                  { product: { mainImage: fileId } },
+                  { finishedProductConsumables: { some: { consumable: { image: fileId } } } },
+                  { finishedProductLabor: { some: { laborType: { image: fileId } } } },
+                ],
+              },
+            },
+          },
+        },
+      })) > 0,
+  },
+  // 耗材供应商弹窗：仅有细粒度查看码、无 consumable:view 的角色
+  {
+    permission: 'consumable-supplier:consumables',
+    referenced: async (prisma, fileId) =>
+      (await prisma.consumable.count({ where: { image: fileId } })) > 0,
+  },
+  // 供应商关联产品弹窗：仅有 supplier:product、无 product:view 的角色
+  {
+    permission: 'supplier:product',
+    referenced: async (prisma, fileId) =>
+      (await prisma.supplierProduct.count({
+        where: { product: { mainImage: fileId } },
+      })) > 0,
+  },
 ];
 
 /**

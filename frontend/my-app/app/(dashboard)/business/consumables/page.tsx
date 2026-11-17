@@ -26,6 +26,8 @@ import { PermissionGate } from '@/components/PermissionGate';
 import { EditableCell } from '@/components/shared/EditableCell';
 import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 import { ConsumablePriceDialog } from './components/ConsumablePriceDialog';
+import { ImageThumb } from '@/components/business/ImageThumb';
+import { ImagePreviewDialog } from '@/components/business/ImagePreviewDialog';
 import {
     DndContext,
     closestCenter,
@@ -52,6 +54,7 @@ interface Consumable {
     specDesc?: string;
     status: string;
     remark?: string;
+    image?: string | null;
     prices?: { unitPrice: number; isCurrent: boolean; supplier?: { name: string } }[];
     createdAt: string;
 }
@@ -111,6 +114,9 @@ export default function ConsumablesPage() {
     const [priceDialogOpen, setPriceDialogOpen] = useState(false);
     const [selectedItem, setSelectedItem] = useState<Consumable | null>(null);
     const [sorting, setSorting] = useState(false);
+
+    // 图片大图预览
+    const [preview, setPreview] = useState<{ fileId: string; alt?: string } | null>(null);
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -315,6 +321,9 @@ export default function ConsumablesPage() {
                                     <TableHeader>
                                         <TableRow className="border-[#1e1e1e] hover:bg-transparent">
                                             <TableHead className="text-[#8e8e8e] w-10">拖拽</TableHead>
+                                            {fp.canView('image') && (
+                                                <TableHead className="text-[#8e8e8e] w-16">图片</TableHead>
+                                            )}
                                             {fp.canView('code') && (
                                                 <TableHead className="text-[#8e8e8e]">编码</TableHead>
                                             )}
@@ -339,6 +348,16 @@ export default function ConsumablesPage() {
                                     <TableBody>
                                         {list.map((item) => (
                                             <SortableRow key={item.id} id={item.id}>
+                                                {fp.canView('image') && (
+                                                <TableCell>
+                                                    <ImageThumb
+                                                        fileId={item.image}
+                                                        alt={item.name}
+                                                        size={40}
+                                                        onPreview={(fileId, alt) => setPreview({ fileId, alt })}
+                                                    />
+                                                </TableCell>
+                                                )}
                                                 {fp.canView('code') && (
                                                 <TableCell className="font-medium text-white">
                                                     {item.code ?? ''}
@@ -494,7 +513,7 @@ export default function ConsumablesPage() {
             </Card>
 
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogContent className="bg-[#262626] border-[#1e1e1e] text-white max-w-lg">
+                <DialogContent className="bg-[#262626] border-[#1e1e1e] text-white max-w-lg max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>
                             {editing ? '编辑耗材' : '新增耗材'}
@@ -522,6 +541,14 @@ export default function ConsumablesPage() {
                     )}
                 </DialogContent>
             </Dialog>
+
+            {/* 耗材图片大图预览 */}
+            <ImagePreviewDialog
+                open={!!preview}
+                fileId={preview?.fileId || null}
+                alt={preview?.alt}
+                onClose={() => setPreview(null)}
+            />
         </div>
     );
 }

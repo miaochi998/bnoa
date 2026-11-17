@@ -17,8 +17,9 @@ import {
     Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { apiClient } from '@/lib/api';
-import { Plus, Search, Edit, Trash2, Building2, GripVertical } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Building2, GripVertical, PackageSearch } from 'lucide-react';
 import { ConsumableSupplierForm } from './components/ConsumableSupplierForm';
+import { ConsumableSupplierConsumablesDialog } from '@/components/business/ConsumableSupplierConsumablesDialog';
 import { PermissionGate } from '@/components/PermissionGate';
 import { EditableCell } from '@/components/shared/EditableCell';
 import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
@@ -112,6 +113,19 @@ export default function ConsumableSuppliersPage() {
 
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editing, setEditing] = useState<ConsumableSupplier | null>(null);
+
+    // 「管理耗材」弹窗
+    const [consumablesDialogOpen, setConsumablesDialogOpen] = useState(false);
+    const [selectedSupplier, setSelectedSupplier] = useState<{
+        id: string;
+        name: string;
+        code: string;
+    } | null>(null);
+
+    const handleManageConsumables = (item: ConsumableSupplier) => {
+        setSelectedSupplier({ id: item.id, name: item.name, code: item.code });
+        setConsumablesDialogOpen(true);
+    };
 
     const handleDragEnd = async (event: DragEndEvent) => {
         const { active, over } = event;
@@ -413,6 +427,17 @@ export default function ConsumableSuppliersPage() {
                                                 )}
                                                 <TableCell className="text-right">
                                                     <div className="flex justify-end gap-2">
+                                                        <PermissionGate permission="consumable-supplier:consumables">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                onClick={() => handleManageConsumables(item)}
+                                                                className="h-8 w-8 text-[#8e8e8e] hover:text-[#409fff] hover:bg-[#363636]"
+                                                                title="管理耗材"
+                                                            >
+                                                                <PackageSearch className="w-4 h-4" />
+                                                            </Button>
+                                                        </PermissionGate>
                                                         <PermissionGate permission="consumable-supplier:update">
                                                             <Button
                                                                 variant="ghost"
@@ -506,6 +531,16 @@ export default function ConsumableSuppliersPage() {
                     />
                 </DialogContent>
             </Dialog>
+
+            {/* 管理耗材（该供应商当前供货的耗材 + 全部供货商比价） */}
+            <ConsumableSupplierConsumablesDialog
+                open={consumablesDialogOpen}
+                onOpenChange={(open) => {
+                    setConsumablesDialogOpen(open);
+                    if (!open) setSelectedSupplier(null);
+                }}
+                supplier={selectedSupplier}
+            />
         </div>
     );
 }

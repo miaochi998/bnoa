@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Star, Check } from 'lucide-react';
+import { Star, Check, Layers } from 'lucide-react';
 import {
     Card, CardContent, CardHeader, CardTitle,
 } from '@/components/ui/card';
@@ -11,6 +11,8 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { SkuCompositionDialog } from '@/components/business/SkuCompositionDialog';
+import { usePermissionStore } from '@/lib/stores/permission-store';
 import {
     MatrixResult, TentativeMap, fmt, pct,
     calculateProfitRateFromPrice,
@@ -30,6 +32,14 @@ export function PricingMatrix({
 }: Props) {
     const [skuFilter, setSkuFilter] =
         useState('all');
+
+    // SKU 成本组成：无 sku:composition 权限时不显示按钮
+    const { hasPermission } = usePermissionStore();
+    const canViewComposition = hasPermission('sku:composition');
+    const [selectedSkuId, setSelectedSkuId] =
+        useState<string | null>(null);
+    const [compositionOpen, setCompositionOpen] =
+        useState(false);
 
     // 自定义售价输入值（字符串，便于输入）
     const [customPriceInputs, setCustomPriceInputs] =
@@ -242,6 +252,20 @@ export function PricingMatrix({
                                                 ({sku.skuType === 'COMBO'
                                                     ? '组合' : '单品'})
                                             </span>
+                                            {canViewComposition && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSelectedSkuId(sku.skuId);
+                                                        setCompositionOpen(true);
+                                                    }}
+                                                    title="SKU成本组成"
+                                                    className="ml-2 inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-[#1e1e1e] text-[#8e8e8e] hover:text-[#409fff] hover:bg-[#363636] transition-colors cursor-pointer active:scale-[0.98]"
+                                                >
+                                                    <Layers className="w-3 h-3" />
+                                                    成本组成
+                                                </button>
+                                            )}
                                         </td>
                                         <td className="py-3 px-3 text-right text-[#8e8e8e] whitespace-nowrap">
                                             {fmt(sku.skuCost)}
@@ -330,6 +354,15 @@ export function PricingMatrix({
                     </table>
                 </div>
             </CardContent>
+
+            <SkuCompositionDialog
+                open={compositionOpen}
+                onOpenChange={(open) => {
+                    setCompositionOpen(open);
+                    if (!open) setSelectedSkuId(null);
+                }}
+                skuId={selectedSkuId}
+            />
         </Card>
     );
 }

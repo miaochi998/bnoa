@@ -27,6 +27,8 @@ import { EditableCell } from '@/components/shared/EditableCell';
 import { PermissionGate } from '@/components/PermissionGate';
 import { usePermissionStore } from '@/lib/stores/permission-store';
 import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
+import { ImageThumb } from '@/components/business/ImageThumb';
+import { ImagePreviewDialog } from '@/components/business/ImagePreviewDialog';
 
 interface Supplier {
     id: string;
@@ -38,6 +40,7 @@ interface Product {
     id: string;
     code: string;
     name: string;
+    mainImage?: string | null;
 }
 
 interface SupplierProduct {
@@ -80,6 +83,9 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
     const [supplyPrice, setSupplyPrice] = useState('');
     const [priceUnit, setPriceUnit] = useState('PER_PIECE');
     const [priceUnitCustom, setPriceUnitCustom] = useState('');
+
+    // 产品主图预览
+    const [preview, setPreview] = useState<{ fileId: string; alt?: string } | null>(null);
 
     // 加载数据
     useEffect(() => {
@@ -248,6 +254,18 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
 
     const isEditing = editingId !== null;
 
+    // 可见列数（列由字段权限动态控制，colSpan 需与表头保持一致）
+    const columnCount = [
+        fp.canView('product.mainImage'),
+        fp.canView('product.code'),
+        fp.canView('product.name'),
+        fp.canView('product.styleName'),
+        fp.canView('product.supplyPrice'),
+        fp.canView('product.priceUnit'),
+        fp.canView('product.status'),
+        canManage,
+    ].filter(Boolean).length || 1;
+
     return (
         <div className="space-y-4">
             {/* 添加按钮 */}
@@ -355,6 +373,7 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
                 <Table>
                     <TableHeader>
                         <TableRow className="border-[#1e1e1e] hover:bg-transparent">
+                            {fp.canView('product.mainImage') && <TableHead className="text-[#8e8e8e]">图片</TableHead>}
                             {fp.canView('product.code') && <TableHead className="text-[#8e8e8e]">产品编码</TableHead>}
                             {fp.canView('product.name') && <TableHead className="text-[#8e8e8e]">产品名称</TableHead>}
                             {fp.canView('product.styleName') && <TableHead className="text-[#8e8e8e]">款式</TableHead>}
@@ -369,13 +388,13 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
                     <TableBody>
                         {loading ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="text-center text-[#8e8e8e] py-8">
+                                <TableCell colSpan={columnCount} className="text-center text-[#8e8e8e] py-8">
                                     加载中...
                                 </TableCell>
                             </TableRow>
                         ) : supplierProducts.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="text-center text-[#8e8e8e] py-8">
+                                <TableCell colSpan={columnCount} className="text-center text-[#8e8e8e] py-8">
                                     <div className="flex flex-col items-center gap-2">
                                         <Package className="w-8 h-8 text-[#8e8e8e]" />
                                         <p>暂无产品关联</p>
@@ -385,6 +404,16 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
                         ) : (
                             supplierProducts.map((sp) => (
                                 <TableRow key={sp.id} className="border-[#1e1e1e]">
+                                    {fp.canView('product.mainImage') && (
+                                        <TableCell>
+                                            <ImageThumb
+                                                fileId={sp.product?.mainImage}
+                                                alt={sp.product?.name || ''}
+                                                size={40}
+                                                onPreview={(fileId, alt) => setPreview({ fileId, alt })}
+                                            />
+                                        </TableCell>
+                                    )}
                                     {fp.canView('product.code') && (
                                         <TableCell className="text-white">{sp.product.code}</TableCell>
                                     )}
@@ -546,6 +575,14 @@ export function SupplierProductForm({ supplier, onSuccess, onCancel }: SupplierP
                     关闭
                 </Button>
             </div>
+
+            {/* 产品主图大图预览 */}
+            <ImagePreviewDialog
+                open={!!preview}
+                fileId={preview?.fileId || null}
+                alt={preview?.alt}
+                onClose={() => setPreview(null)}
+            />
         </div>
     );
 }

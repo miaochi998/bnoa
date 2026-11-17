@@ -113,6 +113,7 @@ export class LaborService {
                 code,
                 name: dto.name,
                 billingType: dto.billingType,
+                image: dto.image,
                 createdBy: userId,
                 updatedBy: userId,
             },

@@ -7,6 +7,7 @@ import {
     MaxLength,
     Min,
     IsInt,
+    IsUUID,
 } from 'class-validator';
 import {
     ApiProperty,
@@ -66,6 +67,11 @@ export class CreateLaborTypeDto {
     })
     @IsEnum(LaborBillingType)
     billingType: LaborBillingType;
+
+    @ApiPropertyOptional({ description: '工费图片文件ID（传 null 清空）', nullable: true })
+    @IsOptional()
+    @IsUUID()
+    image?: string | null;
 }
 
 export class UpdateLaborTypeDto {
@@ -90,6 +96,11 @@ export class UpdateLaborTypeDto {
     @IsOptional()
     @IsEnum(ConsumableStatus)
     status?: ConsumableStatus;
+
+    @ApiPropertyOptional({ description: '工费图片文件ID（传 null 清空）', nullable: true })
+    @IsOptional()
+    @IsUUID()
+    image?: string | null;
 }
 
 // ==================== 工费标准 DTO ====================

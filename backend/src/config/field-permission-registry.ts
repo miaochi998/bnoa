@@ -133,6 +133,15 @@ export const FIELD_PERMISSION_REGISTRY: FieldPermissionDefinition[] = [
     editable: true,
     note: '后端已有字段，前端暂未暴露入口',
   },
+  {
+    module: 'supplier',
+    field: 'product.mainImage',
+    name: '关联产品图片',
+    group: '关联产品',
+    editable: false,
+    defaultVisible: true,
+    note: '只读展示产品主图缩略图',
+  },
   // ===================== 平台管理 =====================
   // 基本信息
   { module: 'platform', field: 'name', name: '平台名称', group: '基本信息', editable: true, defaultVisible: true },
@@ -242,6 +251,7 @@ export const FIELD_PERMISSION_REGISTRY: FieldPermissionDefinition[] = [
   // ===================== 成品管理 =====================
   // 基本信息
   { module: 'finished-product', field: 'code', name: '成品编码', group: '基本信息', editable: true, defaultVisible: true, note: '系统按规则生成' },
+  { module: 'finished-product', field: 'image', name: '成品图片', group: '基本信息', editable: true, defaultVisible: true },
   { module: 'finished-product', field: 'name', name: '成品名称', group: '基本信息', editable: true, defaultVisible: true },
   { module: 'finished-product', field: 'productId', name: '所属产品', group: '基本信息', editable: true, defaultVisible: true },
   { module: 'finished-product', field: 'supplierProductId', name: '供应商价格', group: '基本信息', editable: true, defaultVisible: true, sensitive: true, note: '关联供应商供货价' },
@@ -290,6 +300,7 @@ export const FIELD_PERMISSION_REGISTRY: FieldPermissionDefinition[] = [
   // 基本信息
   { module: 'labor', field: 'name', name: '工种名称', group: '基本信息', editable: true, defaultVisible: true },
   { module: 'labor', field: 'code', name: '工种编码', group: '基本信息', editable: true, defaultVisible: true },
+  { module: 'labor', field: 'image', name: '工费图片', group: '基本信息', editable: true, defaultVisible: true, note: '工序/效果图，用于快速识别该工费对应的产品样式' },
   { module: 'labor', field: 'billingType', name: '计费方式', group: '基本信息', editable: true, defaultVisible: true },
   { module: 'labor', field: 'status', name: '状态', group: '基本信息', editable: true, defaultVisible: true },
   // 费率信息

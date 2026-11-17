@@ -339,6 +339,363 @@ export class SkuService {
     }
 
     /**
+     * SKU 成本组成明细：SKU 汇总 + 每个成品的完整组成
+     * 支持已删除 SKU（历史方案引用场景），但仍做店铺数据范围校验。
+     */
+    async getComposition(
+        id: string,
+        allowedShopIds?: string[],
+    ) {
+        const sku = await this.prisma.sku.findFirst({
+            where: {
+                AND: [
+                    { id },
+                    ...(allowedShopIds
+                        ? [
+                            {
+                                productLink: {
+                                    shopId: {
+                                        in: allowedShopIds,
+                                    },
+                                },
+                            },
+                        ]
+                        : []),
+                ],
+            },
+            include: {
+                productLink: {
+                    include: {
+                        shop: {
+                            include: { platform: true },
+                        },
+                    },
+                },
+                expressCompany: true,
+                skuFinishedProducts: {
+                    include: {
+                        finishedProduct: {
+                            include: {
+                                product: true,
+                                supplierProduct: {
+                                    include: {
+                                        supplier: true,
+                                    },
+                                },
+                                finishedProductConsumables:
+                                {
+                                    include: {
+                                        consumable: {
+                                            include: {
+                                                consumablePrices:
+                                                {
+                                                    where: {
+                                                        isCurrent:
+                                                            true,
+                                                    },
+                                                    orderBy: {
+                                                        effectDate:
+                                                            'desc',
+                                                    },
+                                                    include: {
+                                                        consumableSupplier:
+                                                            true,
+                                                    },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                                finishedProductLabor: {
+                                    include: {
+                                        laborType: {
+                                            include: {
+                                                laborRates: {
+                                                    where: {
+                                                        isCurrent:
+                                                            true,
+                                                    },
+                                                    orderBy: {
+                                                        effectDate:
+                                                            'desc',
+                                                    },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        if (!sku) {
+            throw new NotFoundException('SKU不存在');
+        }
+
+        const round4 = (v: number) =>
+            Math.round(v * 10000) / 10000;
+
+        const fpItems = sku.skuFinishedProducts.map(
+            (item) => {
+                const fp = item.finishedProduct as any;
+                const unitCost = Number(
+                    fp.totalCost || 0,
+                );
+                return {
+                    quantity: item.quantity,
+                    unitCost,
+                    amount: round4(
+                        unitCost * item.quantity,
+                    ),
+                    finishedProduct:
+                        this.buildFpComposition(fp),
+                };
+            },
+        );
+
+        let computedProductCost = 0;
+        for (const item of fpItems) {
+            computedProductCost +=
+                item.unitCost * item.quantity;
+        }
+
+        let computedExpressCost = 0;
+        if (
+            sku.defaultExpressCompanyId &&
+            sku.weight > 0
+        ) {
+            try {
+                const result =
+                    await this.expressService.calculateCost(
+                        {
+                            companyId:
+                                sku.defaultExpressCompanyId,
+                            province: '浙江省',
+                            weight: sku.weight,
+                        },
+                    );
+                computedExpressCost = result.totalPrice;
+            } catch {
+                computedExpressCost = 0;
+            }
+        }
+
+        const cachedTotal = Number(
+            sku.totalCost || 0,
+        );
+        const computedTotal =
+            computedProductCost +
+            Number(sku.comboPackageFee || 0) +
+            computedExpressCost +
+            Number(sku.miscFee || 0);
+
+        return {
+            sku: {
+                id: sku.id,
+                name: sku.name,
+                type: sku.type,
+                status: sku.status,
+                weight: sku.weight,
+                updatedAt: sku.updatedAt,
+                link: sku.productLink
+                    ? {
+                        id: sku.productLink.id,
+                        name: sku.productLink.name,
+                        shop: sku.productLink.shop
+                            ? {
+                                id: sku.productLink.shop
+                                    .id,
+                                name: sku.productLink.shop
+                                    .name,
+                                platform: sku
+                                    .productLink.shop
+                                    .platform
+                                    ? {
+                                        id: sku
+                                            .productLink
+                                            .shop
+                                            .platform.id,
+                                        name: sku
+                                            .productLink
+                                            .shop
+                                            .platform.name,
+                                    }
+                                    : null,
+                            }
+                            : null,
+                    }
+                    : null,
+                express: {
+                    companyId:
+                        sku.defaultExpressCompanyId,
+                    companyName:
+                        sku.expressCompany?.name ??
+                        null,
+                    weight: sku.weight,
+                    cost: Number(sku.expressCost || 0),
+                },
+            },
+            costs: {
+                productCost: Number(
+                    sku.productCost || 0,
+                ),
+                comboPackageFee: Number(
+                    sku.comboPackageFee || 0,
+                ),
+                expressCost: Number(
+                    sku.expressCost || 0,
+                ),
+                miscFee: Number(sku.miscFee || 0),
+                totalCost: cachedTotal,
+            },
+            finishedProducts: fpItems,
+            computed: {
+                productCost: round4(
+                    computedProductCost,
+                ),
+                totalCost: round4(computedTotal),
+                matchesCached:
+                    round4(cachedTotal) ===
+                    round4(computedTotal),
+                diff: round4(
+                    computedTotal - cachedTotal,
+                ),
+            },
+        };
+    }
+
+    /** 成品组成结构（与成品 composition 接口保持一致） */
+    private buildFpComposition(fp: any) {
+        const round4 = (v: number) =>
+            Math.round(v * 10000) / 10000;
+
+        const consumableItems = (
+            fp.finishedProductConsumables || []
+        ).map((item: any) => {
+            const prices =
+                item.consumable?.consumablePrices || [];
+            const currentPrice = prices[0];
+            const unitPrice = currentPrice
+                ? Number(currentPrice.unitPrice)
+                : null;
+            return {
+                id: item.id,
+                consumableId: item.consumableId,
+                code: item.consumable?.code,
+                name: item.consumable?.name,
+                image: item.consumable?.image,
+                quantity: item.quantity,
+                unitPrice,
+                amount:
+                    unitPrice != null
+                        ? round4(
+                            unitPrice * item.quantity,
+                        )
+                        : 0,
+                supplierName:
+                    currentPrice?.consumableSupplier
+                        ?.name ?? null,
+                supplierCount: prices.length,
+                hasCurrentPrice: !!currentPrice,
+            };
+        });
+
+        const laborItems = (
+            fp.finishedProductLabor || []
+        ).map((item: any) => {
+            const rates =
+                item.laborType?.laborRates || [];
+            const currentRate = rates[0];
+            const unitPrice = currentRate
+                ? Number(currentRate.unitPrice)
+                : null;
+            const qty = item.quantity ?? 1;
+            return {
+                id: item.id,
+                laborTypeId: item.laborTypeId,
+                code: item.laborType?.code,
+                name: item.laborType?.name,
+                image: item.laborType?.image,
+                billingType: item.laborType?.billingType,
+                quantity: qty,
+                unitPrice,
+                amount:
+                    unitPrice != null
+                        ? round4(unitPrice * qty)
+                        : 0,
+                hasCurrentRate: !!currentRate,
+            };
+        });
+
+        return {
+            finishedProduct: {
+                id: fp.id,
+                code: fp.code,
+                name: fp.name,
+                image: fp.image,
+                status: fp.status,
+                weight: fp.weight,
+                packageType: fp.packageType,
+                packageQuantity: fp.packageQuantity,
+                packageUnit: fp.packageUnit,
+                updatedAt: fp.updatedAt,
+            },
+            product: fp.product
+                ? {
+                    id: fp.product.id,
+                    code: fp.product.code,
+                    name: fp.product.name,
+                    mainImage: fp.product.mainImage,
+                    pricingMode: fp.product.pricingMode,
+                }
+                : null,
+            supplierProduct: fp.supplierProduct
+                ? {
+                    id: fp.supplierProduct.id,
+                    styleName:
+                        fp.supplierProduct.styleName,
+                    supplyPrice:
+                        fp.supplierProduct.supplyPrice,
+                    priceUnit:
+                        fp.supplierProduct.priceUnit,
+                    priceUnitCustom:
+                        fp.supplierProduct
+                            .priceUnitCustom,
+                    supplier:
+                        fp.supplierProduct.supplier
+                            ? {
+                                id: fp.supplierProduct
+                                    .supplier.id,
+                                name: fp.supplierProduct
+                                    .supplier.name,
+                            }
+                            : null,
+                }
+                : null,
+            cut: {
+                length: fp.cutLength,
+                width: fp.cutWidth,
+                height: fp.cutHeight,
+                unitWeight: fp.unitWeight,
+            },
+            costs: {
+                materialCost: Number(
+                    fp.materialCost || 0,
+                ),
+                consumableCost: Number(
+                    fp.consumableCost || 0,
+                ),
+                laborCost: Number(fp.laborCost || 0),
+                totalCost: Number(fp.totalCost || 0),
+            },
+            consumableItems,
+            laborItems,
+        };
+    }
+
+    /**
      * SKU 列表
      * @param allowedShopIds 数据范围限定：非空时只看这些店铺下的 SKU（经 链接→店铺 归属）
      */

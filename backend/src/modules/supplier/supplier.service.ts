@@ -21,7 +21,12 @@ const SP_INCLUDE = {
         select: { id: true, name: true, code: true },
     },
     product: {
-        select: { id: true, name: true, code: true },
+        select: {
+            id: true,
+            name: true,
+            code: true,
+            mainImage: true,
+        },
     },
 };
 

@@ -790,6 +790,8 @@ model FinishedProduct {
   createdBy                  String?                     @map("created_by") @db.Uuid
   updatedBy                  String?                     @map("updated_by") @db.Uuid
   unitWeight                 Decimal?                    @map("unit_weight") @db.Decimal(10, 4)
+  /// 成品图片（files.id）
+  image                      String?                     @db.Uuid
   finishedProductConsumables FinishedProductConsumable[]
   finishedProductLabor       FinishedProductLabor[]
   product                    Product                     @relation(fields: [productId], references: [id])
@@ -851,6 +853,8 @@ model LaborType {
   code                 String                 @unique @db.VarChar(50)
   sortOrder            Int                    @default(0) @map("sort_order")
   billingType          LaborBillingType       @map("billing_type")
+  /// 工费/工序效果图（files.id）
+  image                String?                @db.Uuid
   status               ConsumableStatus       @default(ENABLED)
   createdAt            DateTime               @default(now()) @map("created_at")
   updatedAt            DateTime               @updatedAt @map("updated_at")

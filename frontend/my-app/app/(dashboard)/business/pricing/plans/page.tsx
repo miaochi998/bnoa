@@ -30,9 +30,10 @@ import {
     History, Search, Loader2, Trash2, Download,
     ChevronLeft, ChevronRight, ChevronDown,
     ChevronRight as ChevronRightIcon, ArrowLeft,
-    Eye,
+    Eye, Layers,
 } from 'lucide-react';
 import { PermissionGate } from '@/components/PermissionGate';
+import { SkuCompositionDialog } from '@/components/business/SkuCompositionDialog';
 import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface SkuSummary {
@@ -101,6 +102,10 @@ export default function PricingPlansPage() {
     // 删除确认
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [toDelete, setToDelete] = useState<PlanItem | null>(null);
+
+    // SKU 成本组成弹窗
+    const [compositionOpen, setCompositionOpen] = useState(false);
+    const [selectedSkuId, setSelectedSkuId] = useState<string | null>(null);
 
     const handlePageSizeChange = (newSize: number) => {
         setPageSize(newSize);
@@ -382,6 +387,9 @@ export default function PricingPlansPage() {
                                                             <TableHead className="text-muted-foreground text-right">毛利润</TableHead>
                                                             <TableHead className="text-muted-foreground text-right">利润率</TableHead>
                                                             <TableHead className="text-muted-foreground text-right">佣金</TableHead>
+                                                            <PermissionGate permission="sku:composition">
+                                                                <TableHead className="text-muted-foreground text-right">操作</TableHead>
+                                                            </PermissionGate>
                                                         </TableRow>
                                                     </TableHeader>
                                                     <TableBody>
@@ -401,6 +409,24 @@ export default function PricingPlansPage() {
                                                                 </TableCell>
                                                                 <TableCell className="text-right text-orange-500">
                                                                     {fmtMoney(sku.commission)}
+                                                                </TableCell>
+                                                                <TableCell className="text-right">
+                                                                    <PermissionGate permission="sku:composition">
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="icon"
+                                                                            className="h-7 w-7 text-muted-foreground hover:text-[#409fff] cursor-pointer"
+                                                                            title="SKU成本组成"
+                                                                            aria-label="SKU成本组成"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setSelectedSkuId(sku.skuId);
+                                                                                setCompositionOpen(true);
+                                                                            }}
+                                                                        >
+                                                                            <Layers className="w-4 h-4" />
+                                                                        </Button>
+                                                                    </PermissionGate>
                                                                 </TableCell>
                                                             </TableRow>
                                                         ))}
@@ -481,6 +507,15 @@ export default function PricingPlansPage() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            <SkuCompositionDialog
+                open={compositionOpen}
+                onOpenChange={(open) => {
+                    setCompositionOpen(open);
+                    if (!open) setSelectedSkuId(null);
+                }}
+                skuId={selectedSkuId}
+            />
         </div>
     );
 }

@@ -34,6 +34,7 @@ import {
 import {
     FieldKeyMapping,
     FieldPermissionService,
+    FieldPermissionState,
 } from '../role/field-permission.service';
 
 /**
@@ -158,6 +159,124 @@ export class FinishedProductController {
             FINISHED_PRODUCT_FIELD_MAP,
             state,
         );
+    }
+
+    @Get(':id/composition')
+    @Permissions('finished-product:composition')
+    @ApiOperation({ summary: '获取成品成本组成明细' })
+    async getComposition(
+        @Param('id') id: string,
+        @CurrentUser() user: UserPayload,
+    ) {
+        const data: any = await this.service.getComposition(id);
+
+        const fpState = await this.resolveFields(user);
+        const consumableState =
+            await this.fieldPermissionService.resolve(
+                user.sub,
+                'consumable',
+                user.roles ?? [],
+            );
+        const laborState =
+            await this.fieldPermissionService.resolve(
+                user.sub,
+                'labor',
+                user.roles ?? [],
+            );
+        const productState =
+            await this.fieldPermissionService.resolve(
+                user.sub,
+                'product',
+                user.roles ?? [],
+            );
+        const supplierState =
+            await this.fieldPermissionService.resolve(
+                user.sub,
+                'supplier',
+                user.roles ?? [],
+            );
+
+        const canView = (
+            state: FieldPermissionState,
+            field: string,
+        ) => state.isSuperAdmin || state.canView.has(field);
+
+        const masked = {
+            finishedProductImage: false,
+            productImage: false,
+            supplyPrice: false,
+            consumablePrice: false,
+            consumableImage: false,
+            laborPrice: false,
+            laborImage: false,
+        };
+
+        // 成品自身
+        if (!canView(fpState, 'image')) {
+            data.finishedProduct.image = null;
+            masked.finishedProductImage = true;
+        }
+        for (const field of [
+            'materialCost',
+            'consumableCost',
+            'laborCost',
+            'totalCost',
+        ]) {
+            if (!canView(fpState, field)) {
+                data.costs[field] = null;
+                data.computed[field] = null;
+            }
+        }
+
+        // 产品
+        if (!canView(productState, 'mainImage')) {
+            data.product.mainImage = null;
+            masked.productImage = true;
+        }
+
+        // 供应商供货价
+        if (
+            !canView(
+                supplierState,
+                'product.supplyPrice',
+            )
+        ) {
+            data.supplierProduct.supplyPrice = null;
+            masked.supplyPrice = true;
+        }
+
+        // 耗材单价 / 图片
+        if (!canView(consumableState, 'price.unitPrice')) {
+            for (const item of data.consumableItems) {
+                item.unitPrice = null;
+                item.amount = null;
+            }
+            masked.consumablePrice = true;
+        }
+        if (!canView(consumableState, 'image')) {
+            for (const item of data.consumableItems) {
+                item.image = null;
+            }
+            masked.consumableImage = true;
+        }
+
+        // 工费单价 / 图片
+        if (!canView(laborState, 'rate.unitPrice')) {
+            for (const item of data.laborItems) {
+                item.unitPrice = null;
+                item.amount = null;
+            }
+            masked.laborPrice = true;
+        }
+        if (!canView(laborState, 'image')) {
+            for (const item of data.laborItems) {
+                item.image = null;
+            }
+            masked.laborImage = true;
+        }
+
+        data.masked = masked;
+        return data;
     }
 
     @Post()

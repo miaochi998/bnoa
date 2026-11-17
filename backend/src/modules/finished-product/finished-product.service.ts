@@ -355,6 +355,173 @@ export class FinishedProductService {
         return item;
     }
 
+    /**
+     * 成本组成明细：产品 / 耗材 / 工费 + 图片 + 单价 + 小计
+     * 金额按「当前价」展示；computed 为重算结果，用于与缓存对比。
+     */
+    async getComposition(id: string) {
+        const round4 = (v: number) =>
+            Math.round(v * 10000) / 10000;
+
+        const fp = await this.prisma.finishedProduct.findFirst({
+            where: { id, deletedAt: null },
+            include: {
+                product: true,
+                supplierProduct: { include: { supplier: true } },
+                finishedProductConsumables: {
+                    include: {
+                        consumable: {
+                            include: {
+                                consumablePrices: {
+                                    where: { isCurrent: true },
+                                    orderBy: { effectDate: 'desc' },
+                                    include: {
+                                        consumableSupplier:
+                                            true,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                finishedProductLabor: {
+                    include: {
+                        laborType: {
+                            include: {
+                                laborRates: {
+                                    where: { isCurrent: true },
+                                    orderBy: { effectDate: 'desc' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (!fp) {
+            throw new NotFoundException('成品不存在');
+        }
+
+        const computed = await this.calculateCost(id);
+
+        const consumableItems =
+            fp.finishedProductConsumables.map((item) => {
+                const prices =
+                    item.consumable.consumablePrices || [];
+                const currentPrice = prices[0];
+                const unitPrice = currentPrice
+                    ? Number(currentPrice.unitPrice)
+                    : null;
+                return {
+                    id: item.id,
+                    consumableId: item.consumableId,
+                    code: item.consumable.code,
+                    name: item.consumable.name,
+                    image: item.consumable.image,
+                    quantity: item.quantity,
+                    unitPrice,
+                    amount:
+                        unitPrice != null
+                            ? round4(unitPrice * item.quantity)
+                            : 0,
+                    supplierName:
+                        currentPrice?.consumableSupplier
+                            ?.name ?? null,
+                    supplierCount: prices.length,
+                    hasCurrentPrice: !!currentPrice,
+                };
+            });
+
+        const laborItems = fp.finishedProductLabor.map(
+            (item) => {
+                const rates =
+                    item.laborType.laborRates || [];
+                const currentRate = rates[0];
+                const unitPrice = currentRate
+                    ? Number(currentRate.unitPrice)
+                    : null;
+                const qty = item.quantity ?? 1;
+                return {
+                    id: item.id,
+                    laborTypeId: item.laborTypeId,
+                    code: item.laborType.code,
+                    name: item.laborType.name,
+                    image: item.laborType.image,
+                    billingType: item.laborType.billingType,
+                    quantity: qty,
+                    unitPrice,
+                    amount:
+                        unitPrice != null
+                            ? round4(unitPrice * qty)
+                            : 0,
+                    hasCurrentRate: !!currentRate,
+                };
+            });
+
+        const matchesCached =
+            round4(Number(fp.materialCost || 0)) ===
+                computed.materialCost &&
+            round4(Number(fp.consumableCost || 0)) ===
+                computed.consumableCost &&
+            round4(Number(fp.laborCost || 0)) ===
+                computed.laborCost;
+
+        return {
+            finishedProduct: {
+                id: fp.id,
+                code: fp.code,
+                name: fp.name,
+                image: fp.image,
+                status: fp.status,
+                weight: fp.weight,
+                packageType: fp.packageType,
+                packageQuantity: fp.packageQuantity,
+                packageUnit: fp.packageUnit,
+                updatedAt: fp.updatedAt,
+            },
+            product: {
+                id: fp.product.id,
+                code: fp.product.code,
+                name: fp.product.name,
+                mainImage: fp.product.mainImage,
+                pricingMode: fp.product.pricingMode,
+            },
+            supplierProduct: {
+                id: fp.supplierProduct.id,
+                styleName: fp.supplierProduct.styleName,
+                supplyPrice: fp.supplierProduct.supplyPrice,
+                priceUnit: fp.supplierProduct.priceUnit,
+                priceUnitCustom:
+                    fp.supplierProduct.priceUnitCustom,
+                supplier: fp.supplierProduct.supplier
+                    ? {
+                        id: fp.supplierProduct.supplier.id,
+                        name: fp.supplierProduct.supplier
+                            .name,
+                    }
+                    : null,
+            },
+            cut: {
+                length: fp.cutLength,
+                width: fp.cutWidth,
+                height: fp.cutHeight,
+                unitWeight: fp.unitWeight,
+            },
+            costs: {
+                materialCost: Number(fp.materialCost || 0),
+                consumableCost: Number(
+                    fp.consumableCost || 0,
+                ),
+                laborCost: Number(fp.laborCost || 0),
+                totalCost: Number(fp.totalCost || 0),
+            },
+            consumableItems,
+            laborItems,
+            computed: { ...computed, matchesCached },
+        };
+    }
+
     async create(
         dto: CreateFinishedProductDto,
         userId: string,
@@ -438,6 +605,7 @@ export class FinishedProductService {
                             weight: dto.weight,
                             status: dto.status,
                             remark: dto.remark,
+                            image: dto.image,
                             createdBy: userId,
                             updatedBy: userId,
                         },

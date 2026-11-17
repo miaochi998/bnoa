@@ -30,6 +30,7 @@ import {
   DataScope,
   FieldKeyMapping,
   FieldPermissionService,
+  FieldPermissionState,
 } from '../role/field-permission.service';
 import {
     CreateSkuDto,
@@ -182,6 +183,175 @@ export class SkuController {
             state,
         );
         return this.stripNestedFinishedProductCost(stripped, user);
+    }
+
+    @Get(':id/composition')
+    @Permissions('sku:composition')
+    @ApiOperation({ summary: '获取SKU成本组成明细' })
+    async getComposition(
+        @Param('id') id: string,
+        @CurrentUser() user: UserPayload,
+    ) {
+        const allowedShopIds = await this.resolveShopIds(user);
+        const data: any = await this.skuService.getComposition(
+            id,
+            allowedShopIds,
+        );
+        const skuState = await this.resolveFields(user);
+        const fpState =
+            await this.fieldPermissionService.resolve(
+                user.sub,
+                'finished-product',
+                user.roles ?? [],
+            );
+        const consumableState =
+            await this.fieldPermissionService.resolve(
+                user.sub,
+                'consumable',
+                user.roles ?? [],
+            );
+        const laborState =
+            await this.fieldPermissionService.resolve(
+                user.sub,
+                'labor',
+                user.roles ?? [],
+            );
+        const productState =
+            await this.fieldPermissionService.resolve(
+                user.sub,
+                'product',
+                user.roles ?? [],
+            );
+        const supplierState =
+            await this.fieldPermissionService.resolve(
+                user.sub,
+                'supplier',
+                user.roles ?? [],
+            );
+
+        const canView = (
+            state: FieldPermissionState,
+            field: string,
+        ) => state.isSuperAdmin || state.canView.has(field);
+
+        const masked = {
+            skuCost: false,
+            finishedProductCost: false,
+            finishedProductImage: false,
+            productImage: false,
+            supplyPrice: false,
+            consumablePrice: false,
+            laborPrice: false,
+        };
+
+        // SKU 层费用
+        for (const field of [
+            'productCost',
+            'comboPackageFee',
+            'expressCost',
+            'miscFee',
+            'totalCost',
+        ]) {
+            if (!canView(skuState, field)) {
+                data.costs[field] = null;
+                masked.skuCost = true;
+            }
+        }
+        for (const field of [
+            'productCost',
+            'totalCost',
+        ]) {
+            if (!canView(skuState, field)) {
+                data.computed[field] = null;
+            }
+        }
+
+        // 成品层（每个成品组成）
+        for (const item of data.finishedProducts) {
+            const comp = item.finishedProduct;
+
+            if (!canView(fpState, 'totalCost')) {
+                item.unitCost = null;
+                item.amount = null;
+            }
+            for (const field of [
+                'materialCost',
+                'consumableCost',
+                'laborCost',
+                'totalCost',
+            ]) {
+                if (!canView(fpState, field)) {
+                    comp.costs[field] = null;
+                }
+            }
+            if (!canView(fpState, 'image')) {
+                comp.finishedProduct.image = null;
+            }
+            if (!canView(productState, 'mainImage')) {
+                comp.product.mainImage = null;
+            }
+            if (
+                !canView(
+                    supplierState,
+                    'product.supplyPrice',
+                )
+            ) {
+                if (comp.supplierProduct) {
+                    comp.supplierProduct.supplyPrice =
+                        null;
+                }
+            }
+            if (
+                !canView(
+                    consumableState,
+                    'price.unitPrice',
+                )
+            ) {
+                for (const ci of comp.consumableItems) {
+                    ci.unitPrice = null;
+                    ci.amount = null;
+                }
+                masked.consumablePrice = true;
+            }
+            if (!canView(consumableState, 'image')) {
+                for (const ci of comp.consumableItems) {
+                    ci.image = null;
+                }
+            }
+            if (!canView(laborState, 'rate.unitPrice')) {
+                for (const li of comp.laborItems) {
+                    li.unitPrice = null;
+                    li.amount = null;
+                }
+                masked.laborPrice = true;
+            }
+            if (!canView(laborState, 'image')) {
+                for (const li of comp.laborItems) {
+                    li.image = null;
+                }
+            }
+        }
+
+        if (!canView(fpState, 'totalCost')) {
+            masked.finishedProductCost = true;
+        }
+        if (!canView(fpState, 'image')) {
+            masked.finishedProductImage = true;
+        }
+        if (!canView(productState, 'mainImage')) {
+            masked.productImage = true;
+        }
+        if (
+            !canView(
+                supplierState,
+                'product.supplyPrice',
+            )
+        ) {
+            masked.supplyPrice = true;
+        }
+
+        data.masked = masked;
+        return data;
     }
 
     @Post()

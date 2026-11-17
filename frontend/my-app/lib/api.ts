@@ -2929,6 +2929,13 @@ class ApiClient {
     return r.data;
   }
 
+  async getSkuComposition(id: string): Promise<any> {
+    const r = await this.request<any>(
+      `/business/skus/${id}/composition`,
+    );
+    return r.data;
+  }
+
   async createSku(data: any): Promise<any> {
     const r = await this.request<any>('/business/skus', {
       method: 'POST',
@@ -3347,6 +3354,24 @@ class ApiClient {
     return response.data;
   }
 
+  async getConsumableSupplierConsumables(
+    supplierId: string,
+    params?: {
+      keyword?: string;
+      page?: number;
+      pageSize?: number;
+    },
+  ): Promise<any> {
+    const q = new URLSearchParams();
+    if (params?.keyword) q.append('keyword', params.keyword);
+    if (params?.page) q.append('page', String(params.page));
+    if (params?.pageSize) q.append('pageSize', String(params.pageSize));
+    const response = await this.request<any>(
+      `/business/consumable-suppliers/${supplierId}/consumables?${q.toString()}`,
+    );
+    return response.data;
+  }
+
   async createConsumableSupplier(data: any): Promise<any> {
     const response = await this.request<any>(
       '/business/consumable-suppliers',
@@ -3641,6 +3666,13 @@ class ApiClient {
   async getFinishedProduct(id: string): Promise<any> {
     const res = await this.request<any>(
       `/business/finished-products/${id}`,
+    );
+    return res.data;
+  }
+
+  async getFinishedProductComposition(id: string): Promise<any> {
+    const res = await this.request<any>(
+      `/business/finished-products/${id}/composition`,
     );
     return res.data;
   }

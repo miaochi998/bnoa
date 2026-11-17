@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { DictSelect } from '@/components/shared/DictSelect';
+import { SimpleImageUploader } from '@/components/upload/SimpleImageUploader';
+import { ImageThumb } from '@/components/business/ImageThumb';
 import { apiClient } from '@/lib/api';
 import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
@@ -22,6 +24,7 @@ export function LaborTypeForm({
     const fp = useFieldPermissions('labor');
     const [formData, setFormData] = useState({
         name: '',
+        image: null as string | null,
         billingType: '',
         status: 'ENABLED',
     });
@@ -32,12 +35,14 @@ export function LaborTypeForm({
             const billingType = laborType.billingType;
             setFormData({
                 name: laborType.name || '',
+                image: laborType.image || null,
                 billingType: billingType === null || billingType === undefined ? '' : String(billingType),
                 status: laborType.status || 'ENABLED',
             });
         } else {
             setFormData({
                 name: '',
+                image: null,
                 billingType: '',
                 status: 'ENABLED',
             });
@@ -62,6 +67,7 @@ export function LaborTypeForm({
         // 只提交「可编辑」字段
         const payload: Record<string, any> = {};
         if (fp.canEdit('name')) payload.name = formData.name;
+        if (fp.canEdit('image')) payload.image = formData.image || null;
         if (fp.canEdit('billingType')) payload.billingType = formData.billingType;
         if (laborType && fp.canEdit('status')) payload.status = formData.status;
 
@@ -113,6 +119,39 @@ export function LaborTypeForm({
                     disabled={!fp.canEdit('name')}
                     className="bg-[#1e1e1e] border-[#3e3e3e] text-white disabled:opacity-50"
                 />
+            </div>
+            )}
+
+            {fp.canView('image') && (
+            <div className="space-y-2">
+                <Label className="text-white">工费图片</Label>
+                {fp.canEdit('image') ? (
+                    <SimpleImageUploader
+                        value={formData.image || undefined}
+                        onChange={(fileId) =>
+                            setFormData({
+                                ...formData,
+                                image: fileId || null,
+                            })
+                        }
+                        returnFileId={true}
+                        placeholder="点击或拖拽上传图片"
+                        className="w-32 h-32"
+                    />
+                ) : formData.image ? (
+                    <ImageThumb
+                        fileId={formData.image}
+                        alt={formData.name}
+                        size={128}
+                    />
+                ) : (
+                    <div className="w-32 h-32 rounded-lg bg-[#1e1e1e] border border-[#3e3e3e] flex items-center justify-center text-xs text-[#8e8e8e]">
+                        无图片
+                    </div>
+                )}
+                <p className="text-xs text-[#8e8e8e]">
+                    用于快速识别该工费对应的工序/产品样式
+                </p>
             </div>
             )}
 

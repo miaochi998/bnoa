@@ -38,9 +38,11 @@ import {
     ChevronRight,
     Loader2,
     GripVertical,
+    Layers,
 } from 'lucide-react';
 import { DictTag } from '@/components/shared/DictTag';
 import { SkuForm } from './components/SkuForm';
+import { SkuCompositionDialog } from '@/components/business/SkuCompositionDialog';
 import { PermissionGate } from '@/components/PermissionGate';
 import { EditableCell } from '@/components/shared/EditableCell';
 import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
@@ -178,6 +180,10 @@ export default function SkusPage() {
     const [editingSku, setEditingSku] =
         useState<Sku | null>(null);
     const [recalculating, setRecalculating] = useState('');
+
+    // SKU 成本组成弹窗
+    const [compositionOpen, setCompositionOpen] = useState(false);
+    const [selectedSkuId, setSelectedSkuId] = useState<string | null>(null);
 
     // 展开的链接ID集合
     const [expandedLinks, setExpandedLinks] = useState<Set<string>>(new Set());
@@ -640,6 +646,21 @@ export default function SkusPage() {
                                                                 )}
                                                                 <TableCell className="text-right">
                                                                     <div className="flex justify-end gap-1">
+                                                                        <PermissionGate permission="sku:composition">
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="icon"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setSelectedSkuId(sku.id);
+                                                                                    setCompositionOpen(true);
+                                                                                }}
+                                                                                className="h-8 w-8 text-[#8e8e8e] hover:text-[#409fff] hover:bg-[#409fff]/10 cursor-pointer"
+                                                                                title="SKU成本组成"
+                                                                            >
+                                                                                <Layers className="w-4 h-4" />
+                                                                            </Button>
+                                                                        </PermissionGate>
                                                                         <Button
                                                                             variant="ghost"
                                                                             size="icon"
@@ -748,6 +769,15 @@ export default function SkusPage() {
                     />
                 </DialogContent>
             </Dialog>
+
+            <SkuCompositionDialog
+                open={compositionOpen}
+                onOpenChange={(open) => {
+                    setCompositionOpen(open);
+                    if (!open) setSelectedSkuId(null);
+                }}
+                skuId={selectedSkuId}
+            />
         </div>
     );
 }

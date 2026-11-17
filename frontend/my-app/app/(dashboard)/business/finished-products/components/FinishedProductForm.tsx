@@ -8,6 +8,8 @@ import { DictSelect } from '@/components/shared/DictSelect';
 import { apiClient } from '@/lib/api';
 import { Plus, Trash2 } from 'lucide-react';
 import { SearchableSelect } from './SearchableSelect';
+import { SimpleImageUploader } from '@/components/upload/SimpleImageUploader';
+import { ImageThumb } from '@/components/business/ImageThumb';
 import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface FinishedProductFormProps {
@@ -26,6 +28,7 @@ export function FinishedProductForm({
 
     const [form, setForm] = useState({
         name: finishedProduct?.name || '',
+        image: (finishedProduct?.image ?? null) as string | null,
         productId: finishedProduct?.product?.id || '',
         supplierProductId:
             finishedProduct?.supplierProduct?.id || '',
@@ -80,6 +83,30 @@ export function FinishedProductForm({
     const [pricingMode, setPricingMode] =
         useState('UNIT');
     const [loading, setLoading] = useState(false);
+
+    // 成品图片配置：复用「产品图片配置」接口（大小/格式/存储文件夹）
+    const [imageConfig, setImageConfig] = useState<{
+        maxSize: number;
+        formats: string[];
+        realFolderId: string | null;
+    } | null>(null);
+    const canViewImage = fp.canView('image');
+
+    useEffect(() => {
+        if (!canViewImage) return;
+        let alive = true;
+        apiClient
+            .getProductImageConfig()
+            .then((cfg) => {
+                if (alive) setImageConfig(cfg);
+            })
+            .catch((error) => {
+                console.error('获取图片配置失败:', error);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [canViewImage]);
 
     // 编辑时根据接口数据回填耗材/工费清单（接口返回 finishedProductConsumables / finishedProductLabor）
     useEffect(() => {
@@ -211,6 +238,8 @@ export function FinishedProductForm({
         // 只提交「可编辑」字段：被配成只读/隐藏的字段不发送
         const payload: any = {};
         if (fp.canEdit('name')) payload.name = form.name;
+        // 图片：清空时显式传 null，后端置空
+        if (fp.canEdit('image')) payload.image = form.image || null;
         if (fp.canEdit('supplierProductId')) payload.supplierProductId = form.supplierProductId;
         if (fp.canEdit('packageType')) payload.packageType = form.packageType;
         if (fp.canEdit('packageQuantity')) payload.packageQuantity = Number(form.packageQuantity);
@@ -296,6 +325,41 @@ export function FinishedProductForm({
                         className="bg-[#1e1e1e] border-[#1e1e1e] text-[#8e8e8e]"
                     />
                 </div>
+            )}
+
+            {fp.canView('image') && (
+            <div className="space-y-2">
+                <Label className="text-white">成品图片</Label>
+                {fp.canEdit('image') ? (
+                    <SimpleImageUploader
+                        value={form.image || undefined}
+                        onChange={(fileId) =>
+                            setForm({ ...form, image: fileId || null })
+                        }
+                        realFolderId={imageConfig?.realFolderId || undefined}
+                        storageMode="rustfs"
+                        accept={
+                            imageConfig?.formats
+                                ?.map((f) => `image/${f}`)
+                                .join(',')
+                            || 'image/jpeg,image/png,image/webp,image/gif'
+                        }
+                        maxSize={imageConfig?.maxSize || 5}
+                        className="w-32 h-32"
+                        returnFileId
+                    />
+                ) : form.image ? (
+                    <ImageThumb
+                        fileId={form.image}
+                        alt={form.name || '成品图片'}
+                        size={128}
+                    />
+                ) : (
+                    <div className="w-32 h-32 rounded bg-[#1e1e1e] flex items-center justify-center text-xs text-[#8e8e8e]">
+                        无图片
+                    </div>
+                )}
+            </div>
             )}
 
             {fp.canView('name') && (

@@ -53,6 +53,7 @@ const SUPPLIER_FIELD_MAP: FieldKeyMapping[] = [
 const SUPPLIER_PRODUCT_FIELD_MAP: FieldKeyMapping[] = [
     { field: 'product.code', key: 'product.code' },
     { field: 'product.name', key: 'product.name' },
+    { field: 'product.mainImage', key: 'product.mainImage' },
     { field: 'product.styleName', key: 'styleName' },
     { field: 'product.supplyPrice', key: 'supplyPrice' },
     { field: 'product.priceUnit', key: 'priceUnit' },

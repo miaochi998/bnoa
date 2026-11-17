@@ -20,9 +20,12 @@ import { DictTag } from '@/components/shared/DictTag';
 import { apiClient } from '@/lib/api';
 import {
     Plus, Search, Edit, Trash2, Boxes,
-    RefreshCw, GripVertical,
+    RefreshCw, GripVertical, Layers,
 } from 'lucide-react';
 import { FinishedProductForm } from './components/FinishedProductForm';
+import { ImageThumb } from '@/components/business/ImageThumb';
+import { ImagePreviewDialog } from '@/components/business/ImagePreviewDialog';
+import { FinishedProductCompositionDialog } from '@/components/business/FinishedProductCompositionDialog';
 import { PermissionGate } from '@/components/PermissionGate';
 import { EditableCell } from '@/components/shared/EditableCell';
 import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
@@ -48,6 +51,7 @@ interface FinishedProduct {
     id: string;
     code: string;
     name: string;
+    image?: string | null;
     packageType: string;
     packageQuantity: number;
     packageUnit: string;
@@ -118,6 +122,17 @@ export default function FinishedProductsPage() {
     const [editing, setEditing] = useState<FinishedProduct | null>(null);
     const [recalculating, setRecalculating] = useState('');
     const [sorting, setSorting] = useState(false);
+
+    // 成品成本组成弹窗
+    const [selectedFpId, setSelectedFpId] =
+        useState<string | null>(null);
+    const [compositionOpen, setCompositionOpen] =
+        useState(false);
+    // 图片大图预览
+    const [preview, setPreview] = useState<{
+        fileId: string;
+        alt?: string;
+    } | null>(null);
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -214,6 +229,17 @@ export default function FinishedProductsPage() {
         setDialogOpen(false);
         setEditing(null);
         loadData();
+    };
+
+    // 打开「成品组成」弹窗（点击时才拉取明细）
+    const handleOpenComposition = (item: FinishedProduct) => {
+        setSelectedFpId(item.id);
+        setCompositionOpen(true);
+    };
+
+    const handleCompositionOpenChange = (open: boolean) => {
+        setCompositionOpen(open);
+        if (!open) setSelectedFpId(null);
     };
 
     const formatCost = (v: number) => {
@@ -340,6 +366,9 @@ export default function FinishedProductsPage() {
                                     <TableHeader>
                                         <TableRow className="border-[#1e1e1e] hover:bg-transparent">
                                             <TableHead className="text-[#8e8e8e] w-10">拖拽</TableHead>
+                                            {fp.canView('image') && (
+                                                <TableHead className="text-[#8e8e8e] w-14">图片</TableHead>
+                                            )}
                                             {fp.canView('code') && (
                                                 <TableHead className="text-[#8e8e8e]">编码</TableHead>
                                             )}
@@ -367,6 +396,21 @@ export default function FinishedProductsPage() {
                                     <TableBody>
                                         {list.map((item) => (
                                             <SortableRow key={item.id} id={item.id}>
+                                                {fp.canView('image') && (
+                                                <TableCell>
+                                                    <ImageThumb
+                                                        fileId={item.image}
+                                                        alt={item.name || '成品图片'}
+                                                        size={40}
+                                                        onPreview={(fileId, alt) =>
+                                                            setPreview({
+                                                                fileId,
+                                                                alt: alt || item.name || '',
+                                                            })
+                                                        }
+                                                    />
+                                                </TableCell>
+                                                )}
                                                 {fp.canView('code') && (
                                                 <TableCell className="font-medium text-white">
                                                     {item.code ?? ''}
@@ -421,6 +465,17 @@ export default function FinishedProductsPage() {
                                                 )}
                                                 <TableCell className="text-right">
                                                     <div className="flex justify-end gap-1">
+                                                        <PermissionGate permission="finished-product:composition">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                onClick={() => handleOpenComposition(item)}
+                                                                className="h-8 w-8 text-[#8e8e8e] hover:text-[#409fff] hover:bg-[#363636] cursor-pointer"
+                                                                title="成品组成"
+                                                            >
+                                                                <Layers className="w-4 h-4" />
+                                                            </Button>
+                                                        </PermissionGate>
                                                         <PermissionGate permission="finished-product:recalculate">
                                                             <Button
                                                                 variant="ghost"
@@ -526,6 +581,19 @@ export default function FinishedProductsPage() {
                     />
                 </DialogContent>
             </Dialog>
+
+            <FinishedProductCompositionDialog
+                open={compositionOpen}
+                onOpenChange={handleCompositionOpenChange}
+                finishedProductId={selectedFpId}
+            />
+
+            <ImagePreviewDialog
+                open={!!preview}
+                fileId={preview?.fileId || null}
+                alt={preview?.alt}
+                onClose={() => setPreview(null)}
+            />
         </div>
     );
 }

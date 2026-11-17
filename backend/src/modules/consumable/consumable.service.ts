@@ -499,6 +499,125 @@ export class ConsumableService {
         });
     }
 
+    // ==================== 耗材供应商关联耗材 ====================
+
+    /**
+     * 某耗材供应商当前供货的耗材列表
+     * - 只取 isCurrent=true 的价格；
+     * - 每个耗材附带「全部当前供货商价格」（A 批当前每家一条；多供应商上线后自然多条）
+     */
+    async findConsumablesBySupplier(
+        supplierId: string,
+        query: {
+            keyword?: string;
+            page?: number;
+            pageSize?: number;
+        },
+    ) {
+        const supplier =
+            await this.prisma.consumableSupplier.findFirst({
+                where: { id: supplierId, deletedAt: null },
+            });
+        if (!supplier) {
+            throw new NotFoundException('耗材供应商不存在');
+        }
+
+        const page = query.page ?? 1;
+        const pageSize = query.pageSize ?? 20;
+
+        const where: any = {
+            supplierId,
+            isCurrent: true,
+            consumable: { deletedAt: null },
+        };
+        if (query.keyword) {
+            where.consumable = {
+                deletedAt: null,
+                OR: [
+                    {
+                        name: {
+                            contains: query.keyword,
+                            mode: 'insensitive',
+                        },
+                    },
+                    {
+                        code: {
+                            contains: query.keyword,
+                            mode: 'insensitive',
+                        },
+                    },
+                ],
+            };
+        }
+
+        const [rows, total] = await Promise.all([
+            this.prisma.consumablePrice.findMany({
+                where,
+                include: { consumable: true },
+                orderBy: [
+                    { effectDate: 'desc' },
+                    { createdAt: 'desc' },
+                ],
+                skip: (page - 1) * pageSize,
+                take: pageSize,
+            }),
+            this.prisma.consumablePrice.count({ where }),
+        ]);
+
+        const consumableIds = [
+            ...new Set(rows.map((r) => r.consumableId)),
+        ];
+        const allCurrent = consumableIds.length
+            ? await this.prisma.consumablePrice.findMany({
+                where: {
+                    consumableId: { in: consumableIds },
+                    isCurrent: true,
+                },
+                include: { consumableSupplier: true },
+            })
+            : [];
+
+        const list = rows.map((row) => ({
+            consumable: {
+                id: row.consumable.id,
+                code: row.consumable.code,
+                name: row.consumable.name,
+                category: row.consumable.category,
+                specDesc: row.consumable.specDesc,
+                image: row.consumable.image,
+                status: row.consumable.status,
+                remark: row.consumable.remark,
+            },
+            currentPrice: {
+                unitPrice: row.unitPrice,
+                effectDate: row.effectDate,
+                batchNote: row.batchNote,
+            },
+            allSuppliers: allCurrent
+                .filter(
+                    (p) => p.consumableId === row.consumableId,
+                )
+                .map((p) => ({
+                    supplierId: p.supplierId,
+                    supplierName:
+                        p.consumableSupplier?.name ?? null,
+                    unitPrice: p.unitPrice,
+                    effectDate: p.effectDate,
+                    isDefault: false,
+                })),
+        }));
+
+        return {
+            list,
+            pagination: {
+                page,
+                pageSize,
+                total,
+                totalPages: Math.ceil(total / pageSize),
+            },
+        };
+    }
+
     private mapPrice(p: any) {
         const { consumableSupplier, ...rest } = p;
         return { ...rest, supplier: consumableSupplier || null };
