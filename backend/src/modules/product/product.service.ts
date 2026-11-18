@@ -5,6 +5,7 @@ import {
     ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
+import { CostRecalcService } from '../cost/cost-recalc.service';
 import {
     CreateProductDto,
     UpdateProductDto,
@@ -15,7 +16,10 @@ import {
 export class ProductService {
     private readonly logger = new Logger(ProductService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly costRecalcService: CostRecalcService,
+    ) {}
 
     /** 生成下一个产品编码（格式 P + 6位数字，如 P000001） */
     async getNextProductCode(): Promise<string> {
@@ -69,6 +73,10 @@ export class ProductService {
             throw new NotFoundException('产品不存在');
         }
 
+        const pricingModeChanged =
+            dto.pricingMode !== undefined &&
+            dto.pricingMode !== product.pricingMode;
+
         const updated = await this.prisma.product.update({
             where: { id },
             data: {
@@ -76,6 +84,12 @@ export class ProductService {
                 updatedBy: userId,
             },
         });
+
+        if (pricingModeChanged) {
+            await this.costRecalcService.recalcByProduct(
+                id,
+            );
+        }
 
         this.logger.log(`产品更新成功: ${updated.name}`);
         return updated;

@@ -525,6 +525,7 @@ model ConsumableSupplier {
   createdBy        String?           @map("created_by") @db.Uuid
   updatedBy        String?           @map("updated_by") @db.Uuid
   consumablePrices ConsumablePrice[]
+  defaultConsumables Consumable[] @relation("ConsumableDefaultSupplier")
   paymentRecords   PaymentRecord[]
   purchaseReceiptItems PurchaseReceiptItem[]
 
@@ -543,6 +544,9 @@ model Consumable {
   category                   ConsumableCategory
   specDesc                   String?                     @map("spec_desc")
   image                      String?                     @db.Uuid
+  /// 默认供货商：决定成品成本按哪家当前价计算（可手动切换）
+  defaultSupplierId          String?                     @map("default_supplier_id") @db.Uuid
+  defaultSupplier            ConsumableSupplier?         @relation("ConsumableDefaultSupplier", fields: [defaultSupplierId], references: [id])
   status                     ConsumableStatus            @default(ENABLED)
   createdAt                  DateTime                    @default(now()) @map("created_at")
   updatedAt                  DateTime                    @updatedAt @map("updated_at")
@@ -556,6 +560,7 @@ model Consumable {
 
   @@index([category])
   @@index([createdAt])
+  @@index([defaultSupplierId])
   @@index([deletedAt])
   @@index([status])
   @@index([sortOrder])
@@ -981,6 +986,8 @@ model PricingPlan {
   commissionRate       Decimal     @map("commission_rate") @db.Decimal(5, 4)
   taxRate              Decimal     @default(0) @map("tax_rate") @db.Decimal(5, 4)
   selectedPrices       Json?       @map("selected_prices")
+  /// 方案保存时的 SKU 成本基线：{ savedAt, skus: [{ id, name, cost }] }
+  costSnapshot         Json?       @map("cost_snapshot")
   needsUpdate          Boolean     @default(false) @map("needs_update")
   remark               String?
   createdAt            DateTime    @default(now()) @map("created_at")

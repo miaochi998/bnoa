@@ -23,6 +23,7 @@ import { EmailModule } from './modules/email/email.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { ExportImportModule } from './modules/export-import/export-import.module';
 import { ConsumableModule } from './modules/consumable/consumable.module';
+import { CostModule } from './modules/cost/cost.module';
 import { ExpressModule } from './modules/express/express.module';
 import { FinishedProductModule } from './modules/finished-product/finished-product.module';
 import { LaborModule } from './modules/labor/labor.module';
@@ -69,6 +70,7 @@ import { AppService } from './app.service';
     NotificationModule,
     ExportImportModule,
     ConsumableModule,
+    CostModule,
     ExpressModule,
     FinishedProductModule,
     LaborModule,

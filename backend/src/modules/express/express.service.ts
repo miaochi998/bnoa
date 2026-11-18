@@ -3,8 +3,11 @@ import {
     Logger,
     NotFoundException,
     ConflictException,
+    Inject,
+    forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
+import { CostRecalcService } from '../cost/cost-recalc.service';
 import {
     CreateExpressCompanyDto,
     UpdateExpressCompanyDto,
@@ -23,7 +26,11 @@ import {
 export class ExpressService {
     private readonly logger = new Logger(ExpressService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        @Inject(forwardRef(() => CostRecalcService))
+        private readonly costRecalcService: CostRecalcService,
+    ) {}
 
     // ========== 快递公司管理 ==========
 
@@ -261,12 +268,17 @@ export class ExpressService {
             throw new NotFoundException(`区域不存在: ${id}`);
         }
 
-        return this.prisma.expressZone.update({
+        const updated = await this.prisma.expressZone.update({
             where: { id },
             data: {
                 provinces: dto.provinces,
             },
         });
+
+        await this.costRecalcService.recalcByExpressCompany(
+            zone.companyId,
+        );
+        return updated;
     }
 
     /**
@@ -285,6 +297,9 @@ export class ExpressService {
         }
 
         this.logger.log(`批量更新区域配置完成: ${companyId}`);
+        await this.costRecalcService.recalcByExpressCompany(
+            companyId,
+        );
         return results;
     }
 
@@ -314,10 +329,16 @@ export class ExpressService {
             throw new NotFoundException(`重量段不存在: ${id}`);
         }
 
-        return this.prisma.expressWeightRange.update({
-            where: { id },
-            data: dto,
-        });
+        const updated =
+            await this.prisma.expressWeightRange.update({
+                where: { id },
+                data: dto,
+            });
+
+        await this.costRecalcService.recalcByExpressCompany(
+            weightRange.companyId,
+        );
+        return updated;
     }
 
     // ==================== 价格矩阵管理 ====================
@@ -391,6 +412,9 @@ export class ExpressService {
         }
 
         this.logger.log(`批量更新价格完成: ${companyId}, 共${results.length}条`);
+        await this.costRecalcService.recalcByExpressCompany(
+            companyId,
+        );
         return results;
     }
 
@@ -486,16 +510,22 @@ export class ExpressService {
     async createSurcharge(companyId: string, dto: CreateSurchargeDto) {
         await this.findCompanyById(companyId);
 
-        return this.prisma.expressSurcharge.create({
-            data: {
-                companyId,
-                name: dto.name,
-                provinces: dto.provinces,
-                weightFrom: dto.weightFrom,
-                weightTo: dto.weightTo,
-                amount: dto.amount,
-            },
-        });
+        const created =
+            await this.prisma.expressSurcharge.create({
+                data: {
+                    companyId,
+                    name: dto.name,
+                    provinces: dto.provinces,
+                    weightFrom: dto.weightFrom,
+                    weightTo: dto.weightTo,
+                    amount: dto.amount,
+                },
+            });
+
+        await this.costRecalcService.recalcByExpressCompany(
+            companyId,
+        );
+        return created;
     }
 
     /**
@@ -510,10 +540,16 @@ export class ExpressService {
             throw new NotFoundException(`附加费规则不存在: ${id}`);
         }
 
-        return this.prisma.expressSurcharge.update({
-            where: { id },
-            data: dto,
-        });
+        const updated =
+            await this.prisma.expressSurcharge.update({
+                where: { id },
+                data: dto,
+            });
+
+        await this.costRecalcService.recalcByExpressCompany(
+            surcharge.companyId,
+        );
+        return updated;
     }
 
     /**
@@ -531,6 +567,10 @@ export class ExpressService {
         await this.prisma.expressSurcharge.delete({
             where: { id },
         });
+
+        await this.costRecalcService.recalcByExpressCompany(
+            surcharge.companyId,
+        );
 
         this.logger.log(`附加费规则删除成功: ${id}`);
     }

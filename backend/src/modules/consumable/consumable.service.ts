@@ -3,8 +3,10 @@ import {
     Logger,
     NotFoundException,
     ConflictException,
+    BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
+import { CostRecalcService } from '../cost/cost-recalc.service';
 import {
     QueryConsumableDto,
     CreateConsumableDto,
@@ -20,7 +22,10 @@ import {
 export class ConsumableService {
     private readonly logger = new Logger(ConsumableService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly costRecalcService: CostRecalcService,
+    ) {}
 
     // ==================== 编码生成 ====================
 
@@ -221,29 +226,65 @@ export class ConsumableService {
             throw new NotFoundException('耗材供应商不存在');
         }
 
-        // 事务：旧价格 isCurrent=false，插入新价格
-        return this.prisma.$transaction(async (tx) => {
-            await tx.consumablePrice.updateMany({
-                where: {
-                    consumableId,
-                    isCurrent: true,
-                },
-                data: { isCurrent: false },
-            });
+        // 事务：仅把「同一供应商」的旧当前价转为历史，再插入新当前价
+        const created = await this.prisma.$transaction(
+            async (tx) => {
+                await tx.consumablePrice.updateMany({
+                    where: {
+                        consumableId,
+                        supplierId: dto.supplierId,
+                        isCurrent: true,
+                    },
+                    data: { isCurrent: false },
+                });
 
-            return tx.consumablePrice.create({
-                data: {
-                    consumableId,
-                    supplierId: dto.supplierId,
-                    unitPrice: dto.unitPrice,
-                    effectDate: new Date(dto.effectDate),
-                    isCurrent: true,
-                    batchNote: dto.batchNote,
-                    createdBy: userId,
-                },
-                include: { consumableSupplier: true },
-            });
-        });
+                const price =
+                    await tx.consumablePrice.create({
+                        data: {
+                            consumableId,
+                            supplierId: dto.supplierId,
+                            unitPrice: dto.unitPrice,
+                            effectDate: new Date(
+                                dto.effectDate,
+                            ),
+                            isCurrent: true,
+                            batchNote: dto.batchNote,
+                            createdBy: userId,
+                        },
+                        include: {
+                            consumableSupplier: true,
+                        },
+                    });
+
+                // 首个报价自动成为默认供货商
+                const consumable =
+                    await tx.consumable.findUnique({
+                        where: { id: consumableId },
+                        select: {
+                            defaultSupplierId: true,
+                        },
+                    });
+                if (
+                    !consumable?.defaultSupplierId
+                ) {
+                    await tx.consumable.update({
+                        where: { id: consumableId },
+                        data: {
+                            defaultSupplierId:
+                                dto.supplierId,
+                        },
+                    });
+                }
+                return price;
+            },
+        );
+
+        // 成本联动：耗材当前价变化 → 成品/SKU 成本
+        await this.costRecalcService.recalcByConsumable(
+            consumableId,
+        );
+
+        return created;
     }
 
     async updatePrice(
@@ -266,27 +307,32 @@ export class ConsumableService {
             throw new NotFoundException('价格记录不存在');
         }
 
-        if (dto.supplierId !== undefined) {
-            const supplier =
-                await this.prisma.consumableSupplier.findFirst({
-                    where: { id: dto.supplierId, deletedAt: null },
-                });
-            if (!supplier) {
-                throw new NotFoundException('耗材供应商不存在');
-            }
+        if (
+            dto.supplierId !== undefined &&
+            dto.supplierId !== price.supplierId
+        ) {
+            throw new BadRequestException(
+                '价格记录的供应商不可修改，请删除后重新添加',
+            );
         }
 
         const data: any = {};
-        if (dto.supplierId !== undefined) data.supplierId = dto.supplierId;
         if (dto.unitPrice !== undefined) data.unitPrice = dto.unitPrice;
         if (dto.effectDate !== undefined) data.effectDate = new Date(dto.effectDate);
         if (dto.batchNote !== undefined) data.batchNote = dto.batchNote;
 
-        return this.prisma.consumablePrice.update({
+        const updated = await this.prisma.consumablePrice.update({
             where: { id: priceId },
             data,
             include: { consumableSupplier: true },
         });
+
+        if (price.isCurrent) {
+            await this.costRecalcService.recalcByConsumable(
+                consumableId,
+            );
+        }
+        return updated;
     }
 
     async setCurrentPrice(
@@ -309,17 +355,30 @@ export class ConsumableService {
             throw new NotFoundException('价格记录不存在');
         }
 
-        return this.prisma.$transaction(async (tx) => {
-            await tx.consumablePrice.updateMany({
-                where: { consumableId, isCurrent: true },
-                data: { isCurrent: false },
-            });
-            return tx.consumablePrice.update({
-                where: { id: priceId },
-                data: { isCurrent: true },
-                include: { consumableSupplier: true },
-            });
-        });
+        const updated = await this.prisma.$transaction(
+            async (tx) => {
+                await tx.consumablePrice.updateMany({
+                    where: {
+                        consumableId,
+                        supplierId: price.supplierId,
+                        isCurrent: true,
+                    },
+                    data: { isCurrent: false },
+                });
+                return tx.consumablePrice.update({
+                    where: { id: priceId },
+                    data: { isCurrent: true },
+                    include: {
+                        consumableSupplier: true,
+                    },
+                });
+            },
+        );
+
+        await this.costRecalcService.recalcByConsumable(
+            consumableId,
+        );
+        return updated;
     }
 
     async deletePrice(
@@ -339,12 +398,18 @@ export class ConsumableService {
             where: { id: priceId },
         });
 
-        // 如果删的是当前价格，自动将最新的设为当前
+        // 删除当前价：按「同一供应商」回退到最新一条历史价
         if (price.isCurrent) {
             const latest =
                 await this.prisma.consumablePrice.findFirst({
-                    where: { consumableId },
-                    orderBy: { effectDate: 'desc' },
+                    where: {
+                        consumableId,
+                        supplierId: price.supplierId,
+                    },
+                    orderBy: [
+                        { effectDate: 'desc' },
+                        { createdAt: 'desc' },
+                    ],
                 });
             if (latest) {
                 await this.prisma.consumablePrice.update({
@@ -353,6 +418,54 @@ export class ConsumableService {
                 });
             }
         }
+
+        await this.costRecalcService.recalcByConsumable(
+            consumableId,
+        );
+    }
+
+    /** 设置耗材默认供货商（决定成品成本取价） */
+    async setDefaultSupplier(
+        consumableId: string,
+        supplierId: string,
+        userId: string,
+    ) {
+        const item =
+            await this.prisma.consumable.findFirst({
+                where: {
+                    id: consumableId,
+                    deletedAt: null,
+                },
+            });
+        if (!item) {
+            throw new NotFoundException('耗材不存在');
+        }
+
+        const supplier =
+            await this.prisma.consumableSupplier.findFirst({
+                where: {
+                    id: supplierId,
+                    deletedAt: null,
+                },
+            });
+        if (!supplier) {
+            throw new NotFoundException(
+                '耗材供应商不存在',
+            );
+        }
+
+        const updated = await this.prisma.consumable.update({
+            where: { id: consumableId },
+            data: {
+                defaultSupplierId: supplierId,
+                updatedBy: userId,
+            },
+        });
+
+        await this.costRecalcService.recalcByConsumable(
+            consumableId,
+        );
+        return updated;
     }
 
     // ==================== 耗材供应商 CRUD ====================
@@ -585,6 +698,8 @@ export class ConsumableService {
                 category: row.consumable.category,
                 specDesc: row.consumable.specDesc,
                 image: row.consumable.image,
+                defaultSupplierId:
+                    row.consumable.defaultSupplierId,
                 status: row.consumable.status,
                 remark: row.consumable.remark,
             },
@@ -603,7 +718,9 @@ export class ConsumableService {
                         p.consumableSupplier?.name ?? null,
                     unitPrice: p.unitPrice,
                     effectDate: p.effectDate,
-                    isDefault: false,
+                    isDefault:
+                        p.supplierId ===
+                        row.consumable.defaultSupplierId,
                 })),
         }));
 
@@ -625,9 +742,13 @@ export class ConsumableService {
 
     private mapConsumable(c: any) {
         const { consumablePrices, ...rest } = c;
+        const prices = (consumablePrices || []).map((p: any) =>
+            this.mapPrice(p),
+        );
         return {
             ...rest,
-            prices: (consumablePrices || []).map((p: any) => this.mapPrice(p)),
+            prices,
+            supplierCount: prices.length,
         };
     }
 }

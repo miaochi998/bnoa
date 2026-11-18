@@ -29,6 +29,7 @@ import {
   DataScope,
   FieldKeyMapping,
   FieldPermissionService,
+  FieldPermissionState,
 } from '../role/field-permission.service';
 import {
     CalculatePricingDto,
@@ -90,6 +91,31 @@ export class PricingController {
         );
     }
 
+    /**
+     * 无「方案汇总明细」查看权时，隐藏派生成本差异字段
+     */
+    private maskCostBaseline(
+        list: any[],
+        state: FieldPermissionState,
+    ) {
+        if (
+            state.isSuperAdmin ||
+            state.canView.has('skuSummaries')
+        ) {
+            return list;
+        }
+        return list.map((item) => {
+            const {
+                costChangedCount: _c,
+                costChangedSkus: _s,
+                missingSkuCount: _m,
+                costBaselineAt: _b,
+                ...rest
+            } = item || {};
+            return rest;
+        });
+    }
+
     // ========== 辅助接口 ==========
 
     @Get('select/links')
@@ -137,13 +163,14 @@ export class PricingController {
         const allowedShopIds = await this.resolveShopIds(user);
         const result = await this.pricingService.findAllPlans(query, allowedShopIds);
         const state = await this.resolveFields(user);
+        const list = this.fieldPermissionService.stripHiddenFieldsForList(
+            result.list as any[],
+            PRICING_FIELD_MAP,
+            state,
+        );
         return {
             ...result,
-            list: this.fieldPermissionService.stripHiddenFieldsForList(
-                result.list as any[],
-                PRICING_FIELD_MAP,
-                state,
-            ),
+            list: this.maskCostBaseline(list as any[], state),
         };
     }
 
@@ -162,6 +189,34 @@ export class PricingController {
             PRICING_FIELD_MAP,
             state,
         );
+    }
+
+    @Post('plans/:id/refresh-costs')
+    @Permissions('pricing:update')
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: '按最新成本重算历史方案' })
+    async refreshPlanCosts(
+        @Param('id') id: string,
+        @CurrentUser() user: UserPayload,
+    ) {
+        const allowedShopIds = await this.resolveShopIds(user);
+        const result =
+            await this.pricingService.refreshPlanCosts(
+                id,
+                user.sub,
+                allowedShopIds,
+            );
+        const state = await this.resolveFields(user);
+        const stripped =
+            this.fieldPermissionService.stripHiddenFields(
+                result as any,
+                PRICING_FIELD_MAP,
+                state,
+            );
+        return this.maskCostBaseline(
+            [stripped as any],
+            state,
+        )[0];
     }
 
     @Post('plans')

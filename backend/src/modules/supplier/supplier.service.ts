@@ -5,6 +5,7 @@ import {
     ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
+import { CostRecalcService } from '../cost/cost-recalc.service';
 import {
     CreateSupplierDto,
     UpdateSupplierDto,
@@ -34,7 +35,10 @@ const SP_INCLUDE = {
 export class SupplierService {
     private readonly logger = new Logger(SupplierService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly costRecalcService: CostRecalcService,
+    ) {}
 
     async create(dto: CreateSupplierDto, userId: string) {
         const today = new Date();
@@ -220,11 +224,19 @@ export class SupplierService {
             throw new NotFoundException('供应商-产品关联不存在');
         }
 
-        return this.prisma.supplierProduct.update({
-            where: { id },
-            data: { ...dto, updatedBy: userId },
-            include: SP_INCLUDE,
-        });
+        const updated =
+            await this.prisma.supplierProduct.update({
+                where: { id },
+                data: { ...dto, updatedBy: userId },
+                include: SP_INCLUDE,
+            });
+
+        // 成本联动：供货价变化 → 引用该供应商价格的成品/SKU
+        await this.costRecalcService.recalcBySupplierProduct(
+            id,
+        );
+
+        return updated;
     }
 
     async deleteSupplierProduct(

@@ -140,6 +140,28 @@ export class PricingService {
     ) {
         await this.validateLink(dto.linkId, allowedShopIds);
 
+        // 保存时的 SKU 成本基线（用于「成本已变」提示与复盘）
+        const skus = await this.prisma.sku.findMany({
+            where: {
+                linkId: dto.linkId,
+                deletedAt: null,
+                status: 'ENABLED',
+            },
+            select: {
+                id: true,
+                name: true,
+                totalCost: true,
+            },
+        });
+        const costSnapshot = {
+            savedAt: new Date().toISOString(),
+            skus: skus.map((s) => ({
+                id: s.id,
+                name: s.name,
+                cost: this.round2(Number(s.totalCost || 0)),
+            })),
+        };
+
         const plan =
             await this.prisma.pricingPlan.create({
                 data: {
@@ -154,6 +176,7 @@ export class PricingService {
                         dto.talentCommissionRate
                             ?? undefined,
                     remark: dto.remark,
+                    costSnapshot,
                     createdBy: userId,
                     updatedBy: userId,
                 },
@@ -374,8 +397,117 @@ export class PricingService {
                 };
             });
 
-            return { ...plan, skuSummaries };
+            // 成本基线对比：保存时成本 vs 当前 SKU 成本
+            const snapshot = plan.costSnapshot as {
+                savedAt?: string;
+                skus?: Array<{
+                    id: string;
+                    name: string;
+                    cost: number;
+                }>;
+            } | null;
+            const savedSkus = Array.isArray(snapshot?.skus)
+                ? snapshot!.skus!
+                : [];
+            const currentCostMap = new Map(
+                skus.map((s) => [
+                    s.id,
+                    this.round2(Number(s.totalCost || 0)),
+                ]),
+            );
+            const costChangedSkus: Array<{
+                skuId: string;
+                skuName: string;
+                savedCost: number;
+                currentCost: number;
+                diff: number;
+            }> = [];
+            let missingSkuCount = 0;
+            for (const saved of savedSkus) {
+                const current = currentCostMap.get(saved.id);
+                if (current === undefined) {
+                    missingSkuCount += 1;
+                    continue;
+                }
+                const savedCost = Number(saved.cost || 0);
+                if (
+                    Math.abs(current - savedCost) >
+                    0.0001
+                ) {
+                    costChangedSkus.push({
+                        skuId: saved.id,
+                        skuName: saved.name,
+                        savedCost,
+                        currentCost: current,
+                        diff: this.round2(
+                            current - savedCost,
+                        ),
+                    });
+                }
+            }
+
+            const { costSnapshot: _raw, ...planRest } =
+                plan as any;
+
+            return {
+                ...planRest,
+                skuSummaries,
+                costChangedCount: costChangedSkus.length,
+                costChangedSkus,
+                missingSkuCount,
+                costBaselineAt: snapshot?.savedAt ?? null,
+            };
         });
+    }
+
+    /**
+     * 按最新成本重算历史方案：更新成本基线并返回最新汇总
+     */
+    async refreshPlanCosts(
+        id: string,
+        userId: string,
+        allowedShopIds?: string[],
+    ) {
+        const plan = await this.findPlanById(
+            id,
+            allowedShopIds,
+        );
+
+        const skus = await this.prisma.sku.findMany({
+            where: {
+                linkId: plan.linkId,
+                deletedAt: null,
+                status: 'ENABLED',
+            },
+            select: {
+                id: true,
+                name: true,
+                totalCost: true,
+            },
+        });
+        const costSnapshot = {
+            savedAt: new Date().toISOString(),
+            skus: skus.map((s) => ({
+                id: s.id,
+                name: s.name,
+                cost: this.round2(Number(s.totalCost || 0)),
+            })),
+        };
+
+        const updated =
+            await this.prisma.pricingPlan.update({
+                where: { id },
+                data: {
+                    costSnapshot,
+                    updatedBy: userId,
+                },
+                include: PLAN_INCLUDE,
+            });
+
+        const [enriched] = await this.enrichPlansWithSummary(
+            [updated],
+        );
+        return enriched;
     }
 
     // ==================== 辅助 ====================

@@ -5,6 +5,7 @@ import {
     ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../config/prisma.service';
+import { CostRecalcService } from '../cost/cost-recalc.service';
 import {
     QueryLaborTypeDto,
     CreateLaborTypeDto,
@@ -17,7 +18,10 @@ import {
 export class LaborService {
     private readonly logger = new Logger(LaborService.name);
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly costRecalcService: CostRecalcService,
+    ) {}
 
     // ==================== 编码生成 ====================
 
@@ -191,27 +195,36 @@ export class LaborService {
             throw new NotFoundException('工种不存在');
         }
 
-        return this.prisma.$transaction(async (tx) => {
-            await tx.laborRate.updateMany({
-                where: {
-                    laborTypeId,
-                    isCurrent: true,
-                },
-                data: { isCurrent: false },
-            });
+        const created = await this.prisma.$transaction(
+            async (tx) => {
+                await tx.laborRate.updateMany({
+                    where: {
+                        laborTypeId,
+                        isCurrent: true,
+                    },
+                    data: { isCurrent: false },
+                });
 
-            return tx.laborRate.create({
-                data: {
-                    laborTypeId,
-                    unitPrice: dto.unitPrice,
-                    unit: dto.unit,
-                    effectDate: new Date(dto.effectDate),
-                    isCurrent: true,
-                    remark: dto.remark,
-                    createdBy: userId,
-                },
-            });
-        });
+                return tx.laborRate.create({
+                    data: {
+                        laborTypeId,
+                        unitPrice: dto.unitPrice,
+                        unit: dto.unit,
+                        effectDate: new Date(
+                            dto.effectDate,
+                        ),
+                        isCurrent: true,
+                        remark: dto.remark,
+                        createdBy: userId,
+                    },
+                });
+            },
+        );
+
+        await this.costRecalcService.recalcByLaborType(
+            laborTypeId,
+        );
+        return created;
     }
 
     async updateRate(
@@ -240,10 +253,15 @@ export class LaborService {
         if (dto.effectDate !== undefined) data.effectDate = new Date(dto.effectDate);
         if (dto.remark !== undefined) data.remark = dto.remark;
 
-        return this.prisma.laborRate.update({
+        const updated = await this.prisma.laborRate.update({
             where: { id: rateId },
             data,
         });
+
+        await this.costRecalcService.recalcByLaborType(
+            laborTypeId,
+        );
+        return updated;
     }
 
     async setCurrentRate(
@@ -265,16 +283,26 @@ export class LaborService {
             throw new NotFoundException('工费标准不存在');
         }
 
-        return this.prisma.$transaction(async (tx) => {
-            await tx.laborRate.updateMany({
-                where: { laborTypeId, isCurrent: true },
-                data: { isCurrent: false },
-            });
-            return tx.laborRate.update({
-                where: { id: rateId },
-                data: { isCurrent: true },
-            });
-        });
+        const updated = await this.prisma.$transaction(
+            async (tx) => {
+                await tx.laborRate.updateMany({
+                    where: {
+                        laborTypeId,
+                        isCurrent: true,
+                    },
+                    data: { isCurrent: false },
+                });
+                return tx.laborRate.update({
+                    where: { id: rateId },
+                    data: { isCurrent: true },
+                });
+            },
+        );
+
+        await this.costRecalcService.recalcByLaborType(
+            laborTypeId,
+        );
+        return updated;
     }
 
     async deleteRate(
@@ -306,6 +334,10 @@ export class LaborService {
                 });
             }
         }
+
+        await this.costRecalcService.recalcByLaborType(
+            laborTypeId,
+        );
     }
 
     async reorderLaborTypes(ids: string[]) {

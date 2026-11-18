@@ -55,7 +55,9 @@ interface Consumable {
     status: string;
     remark?: string;
     image?: string | null;
-    prices?: { unitPrice: number; isCurrent: boolean; supplier?: { name: string } }[];
+    defaultSupplierId?: string | null;
+    supplierCount?: number;
+    prices?: { unitPrice: number; isCurrent: boolean; supplier?: { id?: string; name: string } }[];
     createdAt: string;
 }
 
@@ -405,9 +407,32 @@ export default function ConsumablesPage() {
                                                 )}
                                                 {fp.canView('price.unitPrice') && (
                                                 <TableCell className="text-white">
-                                                    {item.prices?.[0]
-                                                        ? `¥${Number(item.prices[0].unitPrice).toFixed(3)}`
-                                                        : '-'}
+                                                    {(() => {
+                                                        const current =
+                                                            item.prices?.find(
+                                                                (p) =>
+                                                                    p.supplier?.id ===
+                                                                    item.defaultSupplierId,
+                                                            ) ??
+                                                            item.prices?.[0];
+                                                        const count =
+                                                            item.supplierCount ??
+                                                            item.prices?.length ??
+                                                            0;
+                                                        if (!current) return '-';
+                                                        return (
+                                                            <div className="flex items-center gap-2">
+                                                                <span>
+                                                                    ¥{Number(current.unitPrice).toFixed(3)}
+                                                                </span>
+                                                                {count > 1 && (
+                                                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#409fff]/10 text-[#409fff] border border-[#409fff]/30 whitespace-nowrap">
+                                                                        {count} 家供货
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </TableCell>
                                                 )}
                                                 {fp.canView('status') && (
@@ -536,6 +561,10 @@ export default function ConsumablesPage() {
                         <ConsumablePriceDialog
                             consumableId={selectedItem.id}
                             consumableName={selectedItem.name}
+                            defaultSupplierId={
+                                selectedItem.defaultSupplierId ?? null
+                            }
+                            onChanged={loadData}
                             onClose={() => setPriceDialogOpen(false)}
                         />
                     )}

@@ -3,9 +3,10 @@ import { ProductService } from './product.service';
 import { ProductController } from './product.controller';
 import { AuthModule } from '../auth/auth.module';
 import { RoleModule } from '../role/role.module';
+import { CostModule } from '../cost/cost.module';
 
 @Module({
-  imports: [AuthModule, RoleModule],
+  imports: [AuthModule, RoleModule, CostModule],
   providers: [ProductService],
   controllers: [ProductController],
   exports: [ProductService],

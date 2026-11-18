@@ -12,6 +12,7 @@ import {
     HttpCode,
     HttpStatus,
     ForbiddenException,
+    BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { ConsumableService } from './consumable.service';
@@ -47,6 +48,7 @@ const CONSUMABLE_FIELD_MAP: FieldKeyMapping[] = [
     { field: 'category', key: 'category' },
     { field: 'specDesc', key: 'specDesc' },
     { field: 'image', key: 'image' },
+    { field: 'defaultSupplierId', key: 'defaultSupplierId' },
     { field: 'status', key: 'status' },
     { field: 'remark', key: 'remark' },
     // 只隐藏数组元素里的单价（key 用元素字段名 unitPrice）；
@@ -230,6 +232,30 @@ export class ConsumableController {
         }
         return this.consumableService.setCurrentPrice(
             id, priceId, user.sub,
+        );
+    }
+
+    @Patch(':id/default-supplier')
+    @Permissions('consumable:price')
+    @HttpCode(HttpStatus.OK)
+    async setDefaultSupplier(
+        @Param('id') id: string,
+        @Body() body: { supplierId?: string },
+        @CurrentUser() user: UserPayload,
+    ) {
+        if (!body?.supplierId) {
+            throw new BadRequestException('缺少 supplierId');
+        }
+        const state = await this.resolveFields(user);
+        if (!state.canEdit.has('defaultSupplierId')) {
+            throw new ForbiddenException(
+                '没有「默认供货商」的编辑权限',
+            );
+        }
+        return this.consumableService.setDefaultSupplier(
+            id,
+            body.supplierId,
+            user.sub,
         );
     }
 

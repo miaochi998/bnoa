@@ -3036,6 +3036,14 @@ class ApiClient {
     return r.data;
   }
 
+  async refreshPricingPlanCosts(planId: string): Promise<any> {
+    const r = await this.request<any>(
+      `/business/pricing/plans/${planId}/refresh-costs`,
+      { method: 'POST' },
+    );
+    return r.data;
+  }
+
   async updatePricingPlan(id: string, data: any): Promise<any> {
     const r = await this.request<any>(`/business/pricing/plans/${id}`, {
       method: 'PATCH',
@@ -3285,6 +3293,20 @@ class ApiClient {
   async getConsumablePrices(id: string): Promise<any[]> {
     const response = await this.request<any>(
       `/business/consumables/${id}/prices`,
+    );
+    return response.data;
+  }
+
+  async setConsumableDefaultSupplier(
+    id: string,
+    supplierId: string,
+  ): Promise<any> {
+    const response = await this.request<any>(
+      `/business/consumables/${id}/default-supplier`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ supplierId }),
+      },
     );
     return response.data;
   }

@@ -6,9 +6,10 @@ import {
 } from './consumable.controller';
 import { AuthModule } from '../auth/auth.module';
 import { RoleModule } from '../role/role.module';
+import { CostModule } from '../cost/cost.module';
 
 @Module({
-    imports: [AuthModule, RoleModule],
+    imports: [AuthModule, RoleModule, CostModule],
     controllers: [
         ConsumableController,
         ConsumableSupplierController,

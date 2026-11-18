@@ -1,4 +1,6 @@
 import {
+    forwardRef,
+    Inject,
     Injectable,
     Logger,
     NotFoundException,
@@ -12,6 +14,7 @@ import {
     UpdateFinishedProductDto,
 } from './dto/finished-product.dto';
 import { Decimal } from '@prisma/client/runtime/library';
+import { CostRecalcService } from '../cost/cost-recalc.service';
 
 @Injectable()
 export class FinishedProductService {
@@ -20,6 +23,8 @@ export class FinishedProductService {
 
     constructor(
         private readonly prisma: PrismaService,
+        @Inject(forwardRef(() => CostRecalcService))
+        private readonly costRecalcService: CostRecalcService,
     ) {}
 
     // ==================== 编码生成 ====================
@@ -140,11 +145,22 @@ export class FinishedProductService {
                 break;
         }
 
-        // 2. 耗材成本
+        // 2. 耗材成本（默认供货商当前价优先；无默认时取最新当前价）
         let consumableCost = 0;
         for (const item of fp.finishedProductConsumables) {
+            const prices =
+                item.consumable.consumablePrices || [];
+            const preferred = prices.find(
+                (p) =>
+                    p.supplierId ===
+                    item.consumable.defaultSupplierId,
+            );
             const currentPrice =
-                item.consumable.consumablePrices[0];
+                preferred ??
+                [...prices].sort(
+                    (a, b) =>
+                        +b.effectDate - +a.effectDate,
+                )[0];
             if (currentPrice) {
                 consumableCost +=
                     Number(currentPrice.unitPrice)
@@ -409,7 +425,17 @@ export class FinishedProductService {
             fp.finishedProductConsumables.map((item) => {
                 const prices =
                     item.consumable.consumablePrices || [];
-                const currentPrice = prices[0];
+                const preferred = prices.find(
+                    (p) =>
+                        p.supplierId ===
+                        item.consumable.defaultSupplierId,
+                );
+                const currentPrice =
+                    preferred ??
+                    [...prices].sort(
+                        (a, b) =>
+                            +b.effectDate - +a.effectDate,
+                    )[0];
                 const unitPrice = currentPrice
                     ? Number(currentPrice.unitPrice)
                     : null;
@@ -791,6 +817,11 @@ export class FinishedProductService {
         // 重算成本
         await this.updateCostCache(id);
 
+        // 成本联动：重算引用该成品的 SKU
+        await this.costRecalcService.recalcByFinishedProduct(
+            id,
+        );
+
         return this.findById(id);
     }
 
@@ -833,6 +864,12 @@ export class FinishedProductService {
         }
 
         await this.updateCostCache(id);
+
+        // 成本联动：重算引用该成品的 SKU
+        await this.costRecalcService.recalcByFinishedProduct(
+            id,
+        );
+
         return this.findById(id);
     }
 

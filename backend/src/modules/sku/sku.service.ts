@@ -576,7 +576,17 @@ export class SkuService {
         ).map((item: any) => {
             const prices =
                 item.consumable?.consumablePrices || [];
-            const currentPrice = prices[0];
+            const preferred = prices.find(
+                (p: any) =>
+                    p.supplierId ===
+                    item.consumable?.defaultSupplierId,
+            );
+            const currentPrice =
+                preferred ??
+                [...prices].sort(
+                    (a: any, b: any) =>
+                        +b.effectDate - +a.effectDate,
+                )[0];
             const unitPrice = currentPrice
                 ? Number(currentPrice.unitPrice)
                 : null;

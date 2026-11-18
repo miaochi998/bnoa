@@ -68,6 +68,16 @@ interface PlanItem {
         };
     };
     skuSummaries?: SkuSummary[];
+    costChangedCount?: number;
+    costChangedSkus?: Array<{
+        skuId: string;
+        skuName: string;
+        savedCost: number;
+        currentCost: number;
+        diff: number;
+    }>;
+    missingSkuCount?: number;
+    costBaselineAt?: string | null;
 }
 
 interface LinkOption {
@@ -107,6 +117,9 @@ export default function PricingPlansPage() {
     const [compositionOpen, setCompositionOpen] = useState(false);
     const [selectedSkuId, setSelectedSkuId] = useState<string | null>(null);
 
+    // 按最新成本重算
+    const [refreshingPlanId, setRefreshingPlanId] = useState<string | null>(null);
+
     const handlePageSizeChange = (newSize: number) => {
         setPageSize(newSize);
         setPage(1);
@@ -130,6 +143,22 @@ export default function PricingPlansPage() {
             setLoading(false);
         }
     }, [keyword, linkFilter, page, pageSize]);
+
+    const handleRefreshCosts = async (planId: string) => {
+        setRefreshingPlanId(planId);
+        try {
+            await apiClient.refreshPricingPlanCosts(planId);
+            await fetchPlans();
+            alert('已按最新成本重算，成本基线已更新');
+        } catch (e: any) {
+            alert(
+                '重算失败: ' +
+                    (e?.message || '请稍后重试'),
+            );
+        } finally {
+            setRefreshingPlanId(null);
+        }
+    };
 
     const fetchLinks = useCallback(async () => {
         try {
@@ -376,6 +405,42 @@ export default function PricingPlansPage() {
                                     {/* 展开的 SKU 摘要表格 */}
                                     {expandedIds.has(plan.id) && fp.canView('skuSummaries') && (
                                         <div className="border-t border-border">
+                                            {(plan.costChangedCount ?? 0) > 0 ? (
+                                                <div className="flex flex-wrap items-center gap-3 border-b border-border bg-amber-500/10 px-4 py-2 text-xs">
+                                                    <span className="text-amber-600">
+                                                        成本已变 {plan.costChangedCount} 项（保存至今）
+                                                    </span>
+                                                    {(plan.missingSkuCount ?? 0) > 0 && (
+                                                        <span className="text-muted-foreground">
+                                                            {plan.missingSkuCount} 个 SKU 已停用/删除，未参与计算
+                                                        </span>
+                                                    )}
+                                                    <PermissionGate permission="pricing:update">
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="h-6 text-xs cursor-pointer"
+                                                            disabled={refreshingPlanId === plan.id}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleRefreshCosts(plan.id);
+                                                            }}
+                                                        >
+                                                            {refreshingPlanId === plan.id
+                                                                ? '重算中...'
+                                                                : '按最新成本重算'}
+                                                        </Button>
+                                                    </PermissionGate>
+                                                </div>
+                                            ) : plan.costBaselineAt == null ? (
+                                                <div className="border-b border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
+                                                    暂无成本基线（该方案保存于旧版本，保存新方案后开始跟踪成本变化）
+                                                </div>
+                                            ) : (plan.missingSkuCount ?? 0) > 0 ? (
+                                                <div className="border-b border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
+                                                    {plan.missingSkuCount} 个 SKU 已停用/删除，未参与计算
+                                                </div>
+                                            ) : null}
                                             {plan.skuSummaries && plan.skuSummaries.length > 0 ? (
                                                 <Table>
                                                     <TableHeader>

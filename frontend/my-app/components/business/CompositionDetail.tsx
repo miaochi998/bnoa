@@ -193,6 +193,9 @@ export function CompositionDetail({ data, onPreview }: Props) {
                     </div>
                     <div className="text-[#8e8e8e] mt-0.5">
                       {item.supplierName || '未指定供货商'}
+                      {item.supplierCount > 1
+                        ? ` · ${item.supplierCount} 家供货`
+                        : ''}
                     </div>
                   </td>
                   <td className="px-2 py-2 text-right text-white">

@@ -22,12 +22,14 @@ import {
 import { apiClient } from '@/lib/api';
 import { PermissionGate } from '@/components/PermissionGate';
 import { EditableCell } from '@/components/shared/EditableCell';
-import { Plus, CheckCircle, Circle, Trash2, Pencil } from 'lucide-react';
+import { Plus, CheckCircle, Circle, Trash2, Pencil, Star } from 'lucide-react';
 import { useFieldPermissions } from '@/lib/hooks/useFieldPermissions';
 
 interface ConsumablePriceDialogProps {
     consumableId: string;
     consumableName: string;
+    defaultSupplierId?: string | null;
+    onChanged?: () => void;
     onClose: () => void;
 }
 
@@ -50,10 +52,14 @@ interface SupplierOption {
 export function ConsumablePriceDialog({
     consumableId,
     consumableName,
+    defaultSupplierId,
+    onChanged,
     onClose,
 }: ConsumablePriceDialogProps) {
     const fp = useFieldPermissions('consumable');
     const [prices, setPrices] = useState<PriceRecord[]>([]);
+    const [defaultSupplier, setDefaultSupplier] =
+        useState<string | null>(defaultSupplierId ?? null);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
     const [editingPrice, setEditingPrice] = useState<PriceRecord | null>(null);
@@ -95,6 +101,33 @@ export function ConsumablePriceDialog({
         loadSuppliers();
     }, [consumableId]);
 
+    useEffect(() => {
+        setDefaultSupplier(defaultSupplierId ?? null);
+    }, [defaultSupplierId]);
+
+    const handleSetDefault = async (p: PriceRecord) => {
+        if (!p.isCurrent) {
+            alert('请先将该供应商的价格设为当前价');
+            return;
+        }
+        if (!p.supplier?.id) return;
+        try {
+            await apiClient.setConsumableDefaultSupplier(
+                consumableId,
+                p.supplier.id,
+            );
+            setDefaultSupplier(p.supplier.id);
+            alert('默认供货商已切换，关联成品/SKU 成本已自动同步');
+            await loadPrices();
+            onChanged?.();
+        } catch (error: any) {
+            alert(
+                '设置失败: ' +
+                    (error.message || '请稍后重试'),
+            );
+        }
+    };
+
     const handleSetCurrent = async (priceId: string) => {
         if (!confirm('确定将此价格设为当前供货价格？')) return;
         try {
@@ -109,7 +142,7 @@ export function ConsumablePriceDialog({
 
     const handleDeletePrice = async (p: PriceRecord) => {
         const tip = p.isCurrent
-            ? '此为当前价格，删除后将自动切换到最新的价格记录，确定删除？'
+            ? '此为当前价格，删除后将自动回退到该供应商上一条价格，确定删除？'
             : '确定删除此价格记录？';
         if (!confirm(tip)) return;
         try {
@@ -134,21 +167,44 @@ export function ConsumablePriceDialog({
             return;
         }
 
+        if (!editingPrice) {
+            const exists = prices.some(
+                (p) =>
+                    p.supplier?.id === formData.supplierId &&
+                    p.isCurrent,
+            );
+            if (
+                exists &&
+                !confirm(
+                    '该供应商已有当前价，继续将生成一条新价格并保留历史，确定？',
+                )
+            ) {
+                return;
+            }
+        }
+
         setSubmitting(true);
         try {
-            const payload = {
-                supplierId: formData.supplierId || (editingPrice?.supplier?.id ?? ''),
+            const basePayload = {
                 unitPrice: Number(formData.unitPrice),
                 effectDate: formData.effectDate,
                 batchNote: formData.batchNote || undefined,
             };
             if (editingPrice) {
                 await apiClient.updateConsumablePrice(
-                    consumableId, editingPrice.id, payload,
+                    consumableId,
+                    editingPrice.id,
+                    basePayload,
                 );
                 alert('价格已更新');
             } else {
-                await apiClient.createConsumablePrice(consumableId, payload);
+                await apiClient.createConsumablePrice(
+                    consumableId,
+                    {
+                        ...basePayload,
+                        supplierId: formData.supplierId,
+                    },
+                );
                 alert('价格添加成功');
             }
             setShowForm(false);
@@ -159,7 +215,8 @@ export function ConsumablePriceDialog({
                 effectDate: new Date().toISOString().slice(0, 10),
                 batchNote: '',
             });
-            loadPrices();
+            await loadPrices();
+            onChanged?.();
         } catch (error: any) {
             alert((editingPrice ? '更新' : '添加') + '失败: ' + (error.message || '请稍后重试'));
         } finally {
@@ -216,6 +273,14 @@ export function ConsumablePriceDialog({
         );
     }
 
+    const currentPrices = prices
+        .filter((p) => p.isCurrent)
+        .map((p) => Number(p.unitPrice));
+    const minCurrentPrice =
+        currentPrices.length > 0
+            ? Math.min(...currentPrices)
+            : null;
+
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
@@ -254,6 +319,7 @@ export function ConsumablePriceDialog({
                             </Label>
                             <Select
                                 value={formData.supplierId}
+                                disabled={!!editingPrice}
                                 onValueChange={(v) =>
                                     setFormData({ ...formData, supplierId: v })
                                 }
@@ -271,6 +337,11 @@ export function ConsumablePriceDialog({
                                     ))}
                                 </SelectContent>
                             </Select>
+                            {editingPrice && (
+                                <p className="text-xs text-[#8e8e8e]">
+                                    价格记录的供应商不可修改；如需换供应商，请删除后重新添加
+                                </p>
+                            )}
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-1">
@@ -361,6 +432,7 @@ export function ConsumablePriceDialog({
             <Table>
                 <TableHeader>
                     <TableRow className="border-[#3e3e3e] hover:bg-transparent">
+                        <TableHead className="text-[#8e8e8e]">默认</TableHead>
                         <TableHead className="text-[#8e8e8e]">状态</TableHead>
                         <TableHead className="text-[#8e8e8e]">供应商</TableHead>
                         <TableHead className="text-[#8e8e8e]">单价</TableHead>
@@ -374,7 +446,7 @@ export function ConsumablePriceDialog({
                     {loading ? (
                         <TableRow>
                             <TableCell
-                                colSpan={7}
+                                colSpan={8}
                                 className="text-center text-[#8e8e8e] py-8"
                             >
                                 加载中...
@@ -383,7 +455,7 @@ export function ConsumablePriceDialog({
                     ) : prices.length === 0 ? (
                         <TableRow>
                             <TableCell
-                                colSpan={7}
+                                colSpan={8}
                                 className="text-center text-[#8e8e8e] py-8"
                             >
                                 暂无价格记录
@@ -392,6 +464,17 @@ export function ConsumablePriceDialog({
                     ) : (
                         [...prices]
                             .sort((a, b) => {
+                                const aDefault =
+                                    a.isCurrent &&
+                                    a.supplier?.id ===
+                                        defaultSupplier;
+                                const bDefault =
+                                    b.isCurrent &&
+                                    b.supplier?.id ===
+                                        defaultSupplier;
+                                if (aDefault !== bDefault) {
+                                    return aDefault ? -1 : 1;
+                                }
                                 if (a.isCurrent && !b.isCurrent) return -1;
                                 if (!a.isCurrent && b.isCurrent) return 1;
                                 return 0;
@@ -401,6 +484,38 @@ export function ConsumablePriceDialog({
                                 key={p.id}
                                 className="border-[#3e3e3e]"
                             >
+                                <TableCell>
+                                    {p.isCurrent &&
+                                    p.supplier?.id ===
+                                        defaultSupplier ? (
+                                        <span title="默认供货商（成本按此价格计算）">
+                                            <Star
+                                                className="w-4 h-4 text-[#f59e0b]"
+                                                fill="currentColor"
+                                            />
+                                        </span>
+                                    ) : (
+                                        <button
+                                            onClick={() =>
+                                                handleSetDefault(p)
+                                            }
+                                            disabled={
+                                                !p.isCurrent ||
+                                                !fp.canEdit(
+                                                    'defaultSupplierId',
+                                                )
+                                            }
+                                            className="text-[#8e8e8e] hover:text-[#f59e0b] transition-colors disabled:opacity-30"
+                                            title={
+                                                p.isCurrent
+                                                    ? '设为默认供货商'
+                                                    : '仅当前价可设为默认供货商'
+                                            }
+                                        >
+                                            <Star className="w-4 h-4" />
+                                        </button>
+                                    )}
+                                </TableCell>
                                 <TableCell>
                                     {p.isCurrent ? (
                                         <CheckCircle className="w-4 h-4 text-[#22c55e]" />
@@ -421,19 +536,29 @@ export function ConsumablePriceDialog({
                                     </div>
                                 </TableCell>
                                 <TableCell className="text-white font-medium">
-                                    <PermissionGate
-                                        permission="consumable:update"
-                                        fallback={<span>¥{Number(p.unitPrice).toFixed(3)}</span>}
-                                    >
-                                        <EditableCell
-                                            value={p.unitPrice}
-                                            onSave={(newValue) => handleUpdatePriceField(p, 'unitPrice', newValue)}
-                                            placeholder="单价"
-                                            type="number"
-                                            label="单价"
-                                            disabled={!fp.canEdit('price.unitPrice')}
-                                        />
-                                    </PermissionGate>
+                                    <div className="flex items-center gap-1.5">
+                                        <PermissionGate
+                                            permission="consumable:update"
+                                            fallback={<span>¥{Number(p.unitPrice).toFixed(3)}</span>}
+                                        >
+                                            <EditableCell
+                                                value={p.unitPrice}
+                                                onSave={(newValue) => handleUpdatePriceField(p, 'unitPrice', newValue)}
+                                                placeholder="单价"
+                                                type="number"
+                                                label="单价"
+                                                disabled={!fp.canEdit('price.unitPrice')}
+                                            />
+                                        </PermissionGate>
+                                        {p.isCurrent &&
+                                            minCurrentPrice != null &&
+                                            Number(p.unitPrice) ===
+                                                minCurrentPrice && (
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#22c55e]/10 text-[#22c55e] border border-[#22c55e]/30 whitespace-nowrap">
+                                                    最低价
+                                                </span>
+                                            )}
+                                    </div>
                                 </TableCell>
                                 <TableCell className="text-[#8e8e8e]">
                                     {p.effectDate?.slice(0, 10) || '-'}

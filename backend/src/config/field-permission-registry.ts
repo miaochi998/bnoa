@@ -285,6 +285,7 @@ export const FIELD_PERMISSION_REGISTRY: FieldPermissionDefinition[] = [
   { module: 'consumable', field: 'status', name: '状态', group: '基本信息', editable: true, defaultVisible: true },
   { module: 'consumable', field: 'image', name: '耗材图片', group: '基本信息', editable: true, defaultVisible: true },
   // 价格信息
+  { module: 'consumable', field: 'defaultSupplierId', name: '默认供货商', group: '价格信息', editable: true, defaultVisible: true, note: '决定成品成本按哪家当前价计算' },
   { module: 'consumable', field: 'price.unitPrice', name: '耗材价格', group: '价格信息', editable: true, defaultVisible: true, sensitive: true, note: '含供应商采购价与历史价格；无编辑权时不允许增改价格' },
   // 耗材供应商
   { module: 'consumable', field: 'supplier.name', name: '供应商名称', group: '耗材供应商', editable: true, defaultVisible: true },
