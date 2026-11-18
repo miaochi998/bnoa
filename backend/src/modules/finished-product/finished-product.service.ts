@@ -728,6 +728,9 @@ export class FinishedProductService {
             if (dto.remark !== undefined) {
                 updateData.remark = dto.remark;
             }
+            if (dto.image !== undefined) {
+                updateData.image = dto.image;
+            }
 
             await tx.finishedProduct.update({
                 where: { id },

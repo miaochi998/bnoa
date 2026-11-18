@@ -1,11 +1,20 @@
 'use client';
 
 /**
- * 图片大图预览遮罩。
- * 使用自定义 fixed 遮罩而非 Radix Dialog，避免在 Dialog 内嵌套 Dialog 的层级问题。
+ * 图片大图预览。
+ *
+ * 使用 Radix Dialog（而非自定义 fixed 遮罩）有两个原因：
+ *  1) DialogContent 会 Portal 到 body，尺寸相对视口计算，图片按 max-h 自适应，
+ *     不会因为在其他 Dialog 内部渲染而受父级 transform/overflow 影响出现滚动条；
+ *  2) Radix 支持 Dialog 嵌套：在内层（预览）打开时，外层弹窗不会被 pointer-down-outside
+ *     关闭，用户看完大图可以继续浏览原弹窗。
  */
 
-import { X } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { getFilePreviewUrl } from '@/lib/api';
 
 export interface ImagePreviewDialogProps {
@@ -24,26 +33,26 @@ export function ImagePreviewDialog({
   if (!open || !fileId) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[100] bg-black/85 backdrop-blur-sm flex items-center justify-center p-8"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute top-4 right-4 w-10 h-10 rounded-full bg-[#262626] border border-[#3e3e3e] text-white flex items-center justify-center hover:bg-[#363636] transition-colors duration-200 cursor-pointer"
-        title="关闭"
+      <DialogContent
+        showCloseButton={false}
+        aria-describedby={undefined}
+        className="bg-transparent border-0 p-0 shadow-none gap-0 w-auto max-w-none sm:max-w-none"
       >
-        <X className="w-5 h-5" />
-      </button>
-      <img
-        src={getFilePreviewUrl(fileId)}
-        alt={alt || '图片预览'}
-        className="max-w-full max-h-[85vh] object-contain rounded-lg"
-        onClick={(e) => e.stopPropagation()}
-      />
-    </div>
+        <DialogTitle className="sr-only">
+          {alt || '图片预览'}
+        </DialogTitle>
+        <img
+          src={getFilePreviewUrl(fileId)}
+          alt={alt || '图片预览'}
+          className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg"
+        />
+      </DialogContent>
+    </Dialog>
   );
 }
